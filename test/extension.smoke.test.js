@@ -104,7 +104,7 @@ test('extension flow: send, done, question, stuck, empty prompt', { timeout: 300
     assert.equal(calls[0][0], 'antigravity.startNewConversation');
     const sent = sends()[0][1];
     assert.ok(sent.startsWith('Do the thing.'), 'markers stripped');
-    assert.ok(sent.includes('.agent-inbox/done/task-42.json'), 'footer has done path');
+    assert.ok(sent.includes(path.join(inbox, 'done', 'task-42.json')), 'footer has absolute done path');
     assert.ok(fs.existsSync(path.join(inbox, 'sent', 'task-42.json')), 'sent receipt');
     assert.ok(state.get('agentBridge.pending')['task-42'], 'pending recorded');
     assert.match(readLog(), /id=task-42/);

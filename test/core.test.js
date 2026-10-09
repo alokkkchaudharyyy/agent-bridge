@@ -17,7 +17,6 @@ const {
   isValidId,
   extractId,
   idFromFileName,
-  relInboxForPrompt,
   buildFooter,
   withFooter,
   parseDoneFile,
@@ -478,22 +477,23 @@ test('idFromFileName', () => {
   assert.equal(idFromFileName('.json', '.json'), null);
 });
 
-test('relInboxForPrompt', () => {
-  assert.equal(relInboxForPrompt(path.join('/ws', '.agent-inbox'), '/ws'), '.agent-inbox');
-  assert.equal(relInboxForPrompt(path.join('/ws', 'a', 'b'), '/ws'), 'a/b');
-  assert.equal(relInboxForPrompt('/ws', '/ws'), '.');
-  
-  const outside = path.resolve('/other/dir');
-  assert.equal(relInboxForPrompt(outside, '/ws'), outside.replace(/\\/g, '/'));
-  assert.equal(relInboxForPrompt(outside, null), outside.replace(/\\/g, '/'));
+test('buildFooter uses absolute paths', () => {
+  const inboxDir = path.resolve('/code/app/.agent-inbox');
+  const footer = buildFooter({ id: 'task-123', inboxDir });
+  assert.ok(footer.startsWith('---\nAgent Bridge task id: task-123\n'));
+  assert.ok(footer.includes(path.join(inboxDir, 'done', 'task-123.json')));
+  assert.ok(footer.includes(path.join(inboxDir, 'question', 'task-123.md')));
+  assert.ok(footer.includes('{"id": "task-123"'));
+  assert.ok(footer.includes('exactly this absolute path'));
 });
 
-test('buildFooter', () => {
-  const footer = buildFooter({ id: 'task-123', inboxRel: '.agent-inbox' });
-  assert.ok(footer.startsWith('---\nAgent Bridge task id: task-123\n'));
-  assert.ok(footer.includes('.agent-inbox/done/task-123.json'));
-  assert.ok(footer.includes('{"id": "task-123"'));
-  assert.ok(footer.includes('.agent-inbox/question/task-123.md'));
+test('buildFooter in a multi-root workspace points at the inbox root, not another root', () => {
+  const rootA = path.resolve('/code/nexera-app');
+  const rootB = path.resolve('/v1');
+  const footer = buildFooter({ id: 'bridge-test-001', inboxDir: path.join(rootA, '.agent-inbox') });
+  assert.ok(footer.includes(path.join(rootA, '.agent-inbox', 'done', 'bridge-test-001.json')));
+  assert.ok(!footer.includes(rootB));
+  assert.ok(!/(^|\s)\.agent-inbox[\\/]done/.test(footer), 'no relative done path');
 });
 
 test('withFooter', () => {

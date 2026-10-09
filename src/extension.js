@@ -173,8 +173,7 @@ async function deliver(parsed, label, requestedId) {
   
   const id = requestedId || core.makeId();
   if (settings.completionSignal && inboxDir) {
-    const inboxRel = core.relInboxForPrompt(inboxDir, firstWs);
-    body = core.withFooter(body, core.buildFooter({ id, inboxRel }));
+    body = core.withFooter(body, core.buildFooter({ id, inboxDir }));
   }
 
   try {
