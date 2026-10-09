@@ -47,7 +47,7 @@
   },
   "main": "./src/extension.js",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "package": "python scripts/pack.py"
   },
   "contributes": {
