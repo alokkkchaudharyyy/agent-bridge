@@ -8,6 +8,7 @@ const os = require('os');
 const path = require('path');
 
 const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-ws-'));
+const ws2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-ws2-')); // second root: multi-root workspace
 const inbox = path.join(ws, '.agent-inbox');
 const calls = [];
 const msgs = [];
@@ -15,7 +16,7 @@ const status = { text: '', show() {}, dispose() {} };
 const state = new Map();
 const hookScript = "require('fs').writeFileSync('hook.txt', [process.env.AGENT_BRIDGE_EVENT, process.env.AGENT_BRIDGE_ID, process.env.AGENT_BRIDGE_STATUS].join(' '))";
 const cfg = {
-  confirmBeforeSend: false,
+  confirmBeforeSend: 'auto',
   pollIntervalMs: 1000,
   stuckAfterMinutes: 0.02,
   onDoneCommand: `"${process.execPath}" -e "${hookScript}"`
@@ -24,15 +25,16 @@ const cfg = {
 const noop = { dispose() {} };
 const notify = (kind) => (message) => {
   msgs.push([kind, message]);
-  return Promise.resolve();
+  // Answer the one-time auto-send question; everything else is dismissed.
+  return Promise.resolve(message.includes('auto-send prompts') ? 'Always for this project' : undefined);
 };
 const fakeVscode = {
   workspace: {
-    workspaceFolders: [{ uri: { fsPath: ws } }],
+    workspaceFolders: [{ uri: { fsPath: ws } }, { uri: { fsPath: ws2 } }],
     isTrusted: true,
     getConfiguration: () => ({
       get: (k, d) => (k in cfg ? cfg[k] : d),
-      inspect: () => ({ globalValue: cfg.onDoneCommand })
+      inspect: (k) => ({ globalValue: cfg[k] })
     }),
     onDidChangeConfiguration: () => noop,
     onDidChangeWorkspaceFolders: () => noop,
@@ -81,7 +83,7 @@ const sends = () => calls.filter((c) => c[0] === 'antigravity.sendPromptToAgentP
 const hasMsg = (kind, text) => msgs.some((m) => (!kind || m[0] === kind) && m[1].includes(text));
 const readLog = () => fs.readFileSync(path.join(inbox, 'bridge.log'), 'utf8');
 
-test('extension flow: send, done, question, stuck, empty prompt', { timeout: 30000 }, async () => {
+test('extension flow: first-time choice, multi-root paths, send, done, question, stuck, empty prompt', { timeout: 30000 }, async () => {
   const origLoad = Module._load;
   Module._load = function (req, ...rest) {
     return req === 'vscode' ? fakeVscode : origLoad.call(this, req, ...rest);
@@ -109,6 +111,9 @@ test('extension flow: send, done, question, stuck, empty prompt', { timeout: 300
     assert.ok(state.get('agentBridge.pending')['task-42'], 'pending recorded');
     assert.match(readLog(), /id=task-42/);
     assert.doesNotMatch(readLog(), /\+lessons/);
+    assert.equal(msgs.filter((m) => m[1].includes('auto-send prompts')).length, 1, 'one-time question asked once');
+    assert.equal(state.get('agentBridge.autoSend'), 'always', 'choice saved for the project');
+    assert.ok(!fs.existsSync(path.join(ws2, '.agent-inbox')), 'second root untouched');
 
     // 1b. Lessons are referenced by absolute path (multi-root safe).
     fs.writeFileSync(path.join(ws, 'AGENT_LESSONS.md'), '- 2026-10-09 · x: mistake → rule\n');
@@ -147,6 +152,8 @@ test('extension flow: send, done, question, stuck, empty prompt', { timeout: 300
       try { d.dispose(); } catch (_) { /* ignore */ }
     }
     Module._load = origLoad;
-    try { fs.rmSync(ws, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    for (const d of [ws, ws2]) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    }
   }
 });
