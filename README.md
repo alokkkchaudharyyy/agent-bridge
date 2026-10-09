@@ -22,7 +22,7 @@ Then reload the window (Command Palette → **Developer: Reload Window**). You s
 
 1. Open your project folder. Click **Add** when Agent Bridge offers to add `.agent-inbox/` to `.gitignore`.
 2. Create `.agent-inbox/prompt.md` containing `Say hello`.
-3. Within a few seconds Agent Bridge asks whether to send it. Click **Send**.
+3. Within a few seconds Agent Bridge asks, once for this project: **Auto-send prompts from this project's inbox?** Click **Always for this project** (or **Ask each time** if you'd rather approve every prompt).
 4. Watch "Say hello" appear in the agent chat. The file moves to `.agent-inbox/archive/`.
 
 ## Let Claude Code (or any agent) drive it
@@ -79,7 +79,7 @@ LESSONS (so the IDE agent learns from reviews)
 
 SAFETY
 - Never put secrets (API keys, passwords, tokens) in prompts or in the inbox.
-- Leave Agent Bridge's "confirm before send" setting on unless the user says this project is trusted.
+- Never change Agent Bridge's auto-send choice or settings yourself. Whether prompts are sent without asking is the user's call.
 - Only send tasks the user asked for.
 ````
 
@@ -104,6 +104,7 @@ flowchart LR
 | `Agent Bridge: Pause/Resume` | Stops or restarts sending from the inbox. Done/question files are still watched. |
 | `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log`. Clicking the status bar does the same. |
 | `Agent Bridge: Add lesson` | Asks for area, mistake and rule, then appends a line to `AGENT_LESSONS.md`. |
+| `Agent Bridge: Reset auto-send choice` | Forgets this project's "Always / Ask each time" answer, so you're asked again on the next prompt. |
 
 ## Settings
 
@@ -111,7 +112,7 @@ flowchart LR
 | --- | --- | --- |
 | `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. Relative paths start at the first workspace folder. |
 | `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
-| `agentBridge.confirmBeforeSend` | `true` | Ask before sending each prompt. **Keep this on** unless you trust everything that can write to the inbox. |
+| `agentBridge.confirmBeforeSend` | `auto` | `auto`: ask once per project, then remember (reset with the command above). `always`: ask before every prompt. `never`: never ask, and only honored from your user settings. |
 | `agentBridge.newConversationMarker` | `<!-- new-conversation -->` | A prompt starting with this opens a new agent chat first. Empty = off. |
 | `agentBridge.completionSignal` | `true` | Ask the agent to write `done/<id>.json` or `question/<id>.md` when it finishes. |
 | `agentBridge.stuckAfterMinutes` | `30` | Warn if nothing comes back within this many minutes. 0 = never. |
@@ -128,7 +129,9 @@ flowchart LR
 
 ## Safety
 
-> Anything that can write to the inbox can talk to your agent. **Don't turn off `confirmBeforeSend`** while your agent may auto-run terminal commands, especially in folders others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the `.gitignore` offer does this) and never put secrets in prompts.
+> Anything that can write to the inbox can talk to your agent. Only choose **Always for this project** (or `confirmBeforeSend: never`) for projects where you trust everything that can write to `.agent-inbox/`. **Don't combine auto-send with an agent that may auto-run terminal commands** in folders others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the `.gitignore` offer does this) and never put secrets in prompts.
+>
+> The auto-send answer is stored per project on your machine, never in the repo, and `never` is ignored in workspace settings. So a cloned repo can't switch confirmation off for you.
 >
 > `onDoneCommand` is the only thing Agent Bridge runs itself. It is read only from your user settings (never from a workspace), gets task details only through environment variables, and is disabled in untrusted workspaces. Treat `AGENT_BRIDGE_SUMMARY` as untrusted text.
 
