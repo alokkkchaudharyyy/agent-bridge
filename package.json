@@ -36,6 +36,15 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "onDoneCommand is disabled in untrusted workspaces.",
+      "restrictedConfigurations": [
+        "agentBridge.onDoneCommand"
+      ]
+    }
+  },
   "main": "./src/extension.js",
   "scripts": {
     "test": "node --test test/",
@@ -107,6 +116,23 @@
             "Don't mention lessons"
           ],
           "markdownDescription": "How to include review lessons in prompts sent to the agent."
+        },
+        "agentBridge.completionSignal": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Append a footer asking the agent to write `done/<id>.json` (or `question/<id>.md`) when it finishes, so scripts know when it's done."
+        },
+        "agentBridge.stuckAfterMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "markdownDescription": "Warn if no done/question file arrives within this many minutes. 0 = never."
+        },
+        "agentBridge.onDoneCommand": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Optional shell command run when a task finishes, asks a question, or looks stuck. Details arrive as env vars: `AGENT_BRIDGE_EVENT`, `AGENT_BRIDGE_ID`, `AGENT_BRIDGE_STATUS`, `AGENT_BRIDGE_FILE`, `AGENT_BRIDGE_SUMMARY`, `AGENT_BRIDGE_INBOX`. Only read from user settings; disabled in untrusted workspaces."
         }
       }
     }
