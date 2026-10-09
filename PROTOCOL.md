@@ -47,26 +47,22 @@ When the bridge successfully sends your prompt to the agent, it writes a receipt
 }
 ```
 
-Note: If `confirmBeforeSend` is on, a human must click Send before the receipt is written and the clock starts. Orchestrators should wait for `sent/<id>.json` before starting any timeouts.
+Note: unless auto-send is on for the project ("Always for this project", or `confirmBeforeSend: never` in user settings), someone must click Send before the receipt is written and the clock starts. Orchestrators should wait for `sent/<id>.json` before starting any timeouts.
 
 ## The footer text
 
-If `completionSignal` is enabled, the bridge appends this footer to the prompt sent to the agent:
+If `completionSignal` is on, the bridge appends this footer (example for id `task-42` in `D:\Code\my-app`):
 
-```markdown
-
+```text
 ---
-**Task Completion Protocol**
-When you have completely finished this task, you MUST write a JSON file to `.agent-inbox/done/task-42.json`.
-The JSON must have this exact shape:
-{
-  "id": "task-42",
-  "status": "done", // or "failed", or "blocked"
-  "summary": "A short summary of what you did or why you failed",
-  "commits": ["<commit-hash>"] // optional array of commit hashes if you made any
-}
-If you need to ask a question or need a human decision to proceed, write your question as a markdown file to `.agent-inbox/question/task-42.md`.
+Agent Bridge task id: task-42
+When you have completely finished this task, as your very last action create this file (use exactly this absolute path, not a path relative to any workspace folder): D:\Code\my-app\.agent-inbox\done\task-42.json
+It must contain JSON like: {"id": "task-42", "status": "done", "summary": "<one or two sentences>", "commits": ["<sha>"]}
+Use status "failed" if you could not complete it, or "blocked" if something outside your control stopped you.
+If you are blocked or need a decision, instead write D:\Code\my-app\.agent-inbox\question\task-42.md (exactly this absolute path) explaining what you need, then stop and wait.
 ```
+
+The paths are always **absolute**. In a multi-root workspace a relative path could be resolved against the wrong folder, and the bridge would never see the file.
 
 ## done/<id>.json shape
 
