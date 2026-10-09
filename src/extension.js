@@ -329,6 +329,30 @@ function scanOutbox() {
   }
 }
 
+function checkStuck() {
+  const settings = getSettings();
+  const ids = core.findStuck(pending, Date.now(), settings.stuckAfterMinutes);
+  for (const id of ids) {
+    pending[id].stuckNotified = true;
+    savePending();
+    log(`may be stuck: id=${id} (no done/question after ${settings.stuckAfterMinutes} min)`);
+    setStatus('event', `$(clock) Agent Bridge: ${id} may be stuck`, true);
+    vscode.window.showWarningMessage(
+      `Agent Bridge: the agent may be stuck on ${id} (no reply after ${settings.stuckAfterMinutes} min).`,
+      'Open log', 'Forget'
+    ).then(choice => {
+      if (choice === 'Open log') {
+        vscode.commands.executeCommand('agentBridge.openLog');
+      } else if (choice === 'Forget') {
+        if (pending[id]) {
+          delete pending[id];
+          savePending();
+        }
+      }
+    });
+  }
+}
+
 async function handle(entry) {
   const filePath = path.join(inboxDir, entry.name);
   let text;
@@ -437,6 +461,7 @@ async function poll() {
     scanning = true;
     try {
       scanOutbox();
+      checkStuck();
     } finally {
       scanning = false;
     }
