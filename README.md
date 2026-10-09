@@ -11,8 +11,9 @@ Let scripts, schedulers, or another AI agent send prompts into your IDE's AI age
 - Asks for confirmation before sending each prompt (enabled by default).
 - Sends prompts to Antigravity's agent panel, with a fallback to VS Code chat.
 - Supports a lessons file so the agent learns from review and avoids repeating past mistakes.
+- Built-in completion signals (done/question files, stuck warning) for orchestrators.
 
-Agent Bridge only types text into your IDE's agent chat. It never runs commands itself.
+Agent Bridge only types text into your IDE's agent chat. It never runs commands itself, except the optional onDoneCommand you configure.
 
 ## Install
 
@@ -37,9 +38,9 @@ Search for "Agent Bridge" in the Extensions view of Antigravity, VSCodium, or Cu
 
 Sent files move automatically to `.agent-inbox/archive/`.
 
-## Use it from any AI agent or script
+## Use with Claude Code / any agent
 
-You can pair external tools with your IDE agent. For example, Claude Code can write task prompts, the IDE agent builds them, and a reviewer checks the results.
+You can pair external tools with your IDE agent. For example, Claude Code can write task prompts, the IDE agent builds them, and a reviewer checks the results. An orchestrator loop writes `NNN.prompt.md` with an id, the bridge sends it, the agent writes `done/<id>.json`, and the orchestrator reads it to continue.
 
 ### Instructions to give your agent
 
@@ -48,10 +49,11 @@ Copy and paste this into your agent's instructions:
 ```markdown
 Write your prompt as Markdown to `<workspace>/.agent-inbox/prompt.md`.
 To queue multiple prompts, use zero-padded names like `001.prompt.md`, `002.prompt.md`.
-Write the full file in one go (write to a temporary file first and rename it, if you can).
+Include an ID header on the first line: `<!-- id: task-123 -->`.
+Write the full file to a `.tmp` file first and rename it.
 Start the file with `<!-- new-conversation -->` to begin a fresh conversation.
 Never write into `.agent-inbox/archive/`.
-Check `.agent-inbox/bridge.log` to confirm it was sent.
+Wait for `.agent-inbox/done/<id>.json` or `.agent-inbox/question/<id>.md` before proceeding. See PROTOCOL.md for details.
 ```
 
 ### Shell examples
@@ -120,10 +122,15 @@ Clicking the status bar item also opens `.agent-inbox/bridge.log`.
 | `agentBridge.newConversationMarker` | `"<!-- new-conversation -->"` | If a prompt file starts with this, a new agent conversation is started first. Empty = disabled. |
 | `agentBridge.lessonsFile` | `"AGENT_LESSONS.md"` | Lessons file (relative to the workspace or absolute) that reviewers append mistakes to. |
 | `agentBridge.lessonsMode` | `"reference"` | How to include review lessons in prompts sent to the agent (`reference`, `inline`, or `off`). |
+| `agentBridge.completionSignal` | `true` | Append a footer asking the agent to write `done/<id>.json` (or `question/<id>.md`) when it finishes. |
+| `agentBridge.stuckAfterMinutes` | `30` | Warn if no done/question file arrives within this many minutes. 0 = never. |
+| `agentBridge.onDoneCommand` | `""` | Optional shell command run when a task finishes, asks a question, or looks stuck. |
 
 ## Safety
 
 > Anything that can write to the inbox can talk to your agent. Do NOT turn off confirmBeforeSend while your agent is allowed to auto-run terminal commands, especially on a machine or folder others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the .gitignore offer does this).
+> 
+> The `onDoneCommand` runs a shell command you configure; it is only read from user settings, never from a workspace, gets task details only via env vars, and is disabled in untrusted workspaces. Treat `AGENT_BRIDGE_SUMMARY` as untrusted text.
 
 ## Known limits
 
