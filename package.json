@@ -39,5 +39,75 @@
   "main": "./src/extension.js",
   "scripts": {
     "test": "node --test test/"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentBridge.sendCurrentFile",
+        "title": "Send current file as prompt",
+        "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.togglePause",
+        "title": "Pause/Resume",
+        "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.openLog",
+        "title": "Open log",
+        "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.addLesson",
+        "title": "Add lesson",
+        "category": "Agent Bridge"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Bridge",
+      "properties": {
+        "agentBridge.inboxPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Folder to watch for prompts. Empty = `<workspace>/.agent-inbox`. Relative paths are resolved against the first workspace folder."
+        },
+        "agentBridge.pollIntervalMs": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 1000,
+          "markdownDescription": "How often to check the inbox folder for new prompt files (in milliseconds). Minimum is 1000."
+        },
+        "agentBridge.confirmBeforeSend": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Ask before sending each prompt. **Keep this on** unless you trust everything that can write to the inbox."
+        },
+        "agentBridge.newConversationMarker": {
+          "type": "string",
+          "default": "<!-- new-conversation -->",
+          "markdownDescription": "If a prompt file starts with this, a new agent conversation is started first. Empty = disabled."
+        },
+        "agentBridge.lessonsFile": {
+          "type": "string",
+          "default": "AGENT_LESSONS.md",
+          "markdownDescription": "Lessons file (relative to the workspace or absolute) that reviewers append mistakes to."
+        },
+        "agentBridge.lessonsMode": {
+          "type": "string",
+          "enum": [
+            "reference",
+            "inline",
+            "off"
+          ],
+          "default": "reference",
+          "enumDescriptions": [
+            "Append one line asking the agent to read the lessons file",
+            "Paste the newest lessons into each prompt (max ~4000 chars)",
+            "Don't mention lessons"
+          ],
+          "markdownDescription": "How to include review lessons in prompts sent to the agent."
+        }
+      }
+    }
   }
 }
