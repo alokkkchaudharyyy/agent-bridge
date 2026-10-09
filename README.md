@@ -42,6 +42,8 @@ Sent files move automatically to `.agent-inbox/archive/`.
 
 You can pair external tools with your IDE agent. For example, Claude Code can write task prompts, the IDE agent builds them, and a reviewer checks the results. An orchestrator loop writes `NNN.prompt.md` with an id, the bridge sends it, the agent writes `done/<id>.json`, and the orchestrator reads it to continue.
 
+The full file protocol (ids, receipts, done/question files, hook env vars, example loops) is in [PROTOCOL.md](PROTOCOL.md).
+
 ### Instructions to give your agent
 
 Copy and paste this into your agent's instructions:
