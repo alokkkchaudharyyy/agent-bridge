@@ -361,6 +361,39 @@ function activate(context) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.togglePause', () => {
+      paused = !paused;
+      if (extensionContext) {
+        extensionContext.workspaceState.update('agentBridge.paused', paused);
+      }
+      log(paused ? 'paused' : 'resumed');
+      setStatus(paused ? 'paused' : 'watching');
+      vscode.window.showInformationMessage(`Agent Bridge ${paused ? 'paused' : 'resumed'}.`);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.openLog', async () => {
+      if (!inboxDir) {
+        vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
+        return;
+      }
+      const logFile = path.join(inboxDir, 'bridge.log');
+      try {
+        fs.appendFileSync(logFile, '', 'utf8');
+      } catch (e) {
+        log(`failed to ensure log file: ${e.message}`);
+      }
+      try {
+        const doc = await vscode.workspace.openTextDocument(logFile);
+        await vscode.window.showTextDocument(doc);
+      } catch (e) {
+        log(`open log failed: ${e.message}`);
+      }
+    })
+  );
+
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentBridge')) {
         stop();
