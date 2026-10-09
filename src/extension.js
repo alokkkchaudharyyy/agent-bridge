@@ -73,6 +73,52 @@ function setStatus(kind) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function deliver(parsed, label) {
+  const body = parsed.body;
+  try {
+    const cmdsList = await vscode.commands.getCommands(true);
+    const cmds = new Set(cmdsList);
+    let via = null;
+
+    if (cmds.has('antigravity.sendPromptToAgentPanel')) {
+      if (parsed.newConversation && cmds.has('antigravity.startNewConversation')) {
+        await vscode.commands.executeCommand('antigravity.startNewConversation');
+        await sleep(1500);
+      }
+      await vscode.commands.executeCommand('antigravity.sendPromptToAgentPanel', body);
+      via = 'antigravity';
+    } else if (cmds.has('workbench.action.chat.open')) {
+      if (parsed.newConversation && cmds.has('workbench.action.chat.newChat')) {
+        await vscode.commands.executeCommand('workbench.action.chat.newChat');
+        await sleep(500);
+      }
+      await vscode.commands.executeCommand('workbench.action.chat.open', { query: body });
+      via = 'vscode-chat';
+    } else {
+      log(`no agent chat command found; ${label} not sent (kept in archive)`);
+      setStatus('error');
+      if (!noTargetWarned) {
+        vscode.window.showErrorMessage(
+          'Agent Bridge: no supported agent chat found. It needs Antigravity, or VS Code with a chat extension. Your prompt was kept in .agent-inbox/archive.'
+        );
+        noTargetWarned = true;
+      }
+      return;
+    }
+
+    const newConvSuffix = parsed.newConversation ? ' (new conversation)' : '';
+    log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}`);
+    setStatus('sent');
+  } catch (e) {
+    log(`send failed (${label}): ${e.message}`);
+    setStatus('error');
+  }
+}
+
 async function poll() {
   if (paused || busy || !inboxDir) return;
   // Poll logic will be implemented in subsequent step
@@ -134,6 +180,24 @@ function activate(context) {
   statusItem.command = 'agentBridge.openLog';
   statusItem.show();
   context.subscriptions.push(statusItem);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.sendCurrentFile', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage('Agent Bridge: open a file first.');
+        return;
+      }
+      const doc = editor.document;
+      const settings = getSettings();
+      const parsed = core.parsePrompt(doc.getText(), settings.newConversationMarker);
+      if (parsed.isEmpty) {
+        vscode.window.showWarningMessage('Agent Bridge: the file is empty.');
+        return;
+      }
+      await deliver(parsed, path.basename(doc.fileName));
+    })
+  );
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
