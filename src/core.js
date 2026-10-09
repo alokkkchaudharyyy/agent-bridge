@@ -308,6 +308,68 @@ function withFooter(body, footer) {
   return footer ? `${body}\n\n${footer}` : body;
 }
 
+function parseDoneFile(text, fileId) {
+  const textWithoutBOM = (typeof text === 'string' && text.startsWith('\uFEFF')) ? text.slice(1) : (typeof text === 'string' ? text : '');
+  
+  let json;
+  try {
+    json = JSON.parse(textWithoutBOM);
+  } catch (err) {
+    return { id: fileId, status: 'invalid', summary: '', commits: [], valid: false, error: 'invalid JSON' };
+  }
+  
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) {
+    return { id: fileId, status: 'invalid', summary: '', commits: [], valid: false, error: 'invalid JSON' };
+  }
+  
+  let status = 'unknown';
+  if (typeof json.status === 'string') {
+    const lower = json.status.toLowerCase();
+    if (['done', 'failed', 'blocked'].includes(lower)) {
+      status = lower;
+    }
+  }
+  
+  let summary = '';
+  if (typeof json.summary === 'string') {
+    summary = normalizeWhitespace(json.summary);
+    if (summary.length > 300) {
+      summary = summary.slice(0, 300) + '…';
+    }
+  }
+  
+  let commits = [];
+  if (Array.isArray(json.commits)) {
+    commits = json.commits
+      .filter(c => typeof c === 'string')
+      .map(c => c.trim())
+      .filter(c => c.length > 0)
+      .slice(0, 20);
+  }
+  
+  let error = null;
+  if (typeof json.id === 'string' && json.id !== fileId) {
+    error = `id mismatch: file says ${json.id}`;
+  }
+  
+  return { id: fileId, status, summary, commits, valid: true, error };
+}
+
+function findStuck(pending, nowMs, stuckAfterMinutes) {
+  if (typeof stuckAfterMinutes !== 'number' || stuckAfterMinutes <= 0) {
+    return [];
+  }
+  const thresholdMs = stuckAfterMinutes * 60000;
+  const ids = [];
+  for (const id of Object.keys(pending)) {
+    const item = pending[id];
+    if (!item.stuckNotified && (nowMs - item.sentAt) >= thresholdMs) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
 module.exports = {
   selectNext,
   skipKey,
@@ -326,6 +388,8 @@ module.exports = {
   idFromFileName,
   relInboxForPrompt,
   buildFooter,
-  withFooter
+  withFooter,
+  parseDoneFile,
+  findStuck
 };
 

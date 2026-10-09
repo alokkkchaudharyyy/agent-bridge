@@ -19,7 +19,9 @@ const {
   idFromFileName,
   relInboxForPrompt,
   buildFooter,
-  withFooter
+  withFooter,
+  parseDoneFile,
+  findStuck
 } = require('../src/core.js');
 
 test('selectNext', async (t) => {
@@ -498,5 +500,71 @@ test('withFooter', () => {
   assert.equal(withFooter('body text', 'footer text'), 'body text\n\nfooter text');
   assert.equal(withFooter('body text', ''), 'body text');
   assert.equal(withFooter('body text', null), 'body text');
+});
+
+test('parseDoneFile', async (t) => {
+  await t.test('valid done file', () => {
+    const res = parseDoneFile('{"id": "a", "status": "DONE", "summary": "  did  it ", "commits": [" abc "]}', 'a');
+    assert.deepEqual(res, { id: 'a', status: 'done', summary: 'did it', commits: ['abc'], valid: true, error: null });
+  });
+  await t.test('failed', () => {
+    const res = parseDoneFile('{"status": "Failed"}', 'a');
+    assert.equal(res.status, 'failed');
+  });
+  await t.test('blocked', () => {
+    const res = parseDoneFile('{"status": "bLOCKED"}', 'a');
+    assert.equal(res.status, 'blocked');
+  });
+  await t.test('unknown status', () => {
+    const res = parseDoneFile('{"status": "other"}', 'a');
+    assert.equal(res.status, 'unknown');
+  });
+  await t.test('invalid JSON', () => {
+    const res = parseDoneFile('{bad}', 'a');
+    assert.deepEqual(res, { id: 'a', status: 'invalid', summary: '', commits: [], valid: false, error: 'invalid JSON' });
+  });
+  await t.test('array JSON', () => {
+    const res = parseDoneFile('[]', 'a');
+    assert.deepEqual(res, { id: 'a', status: 'invalid', summary: '', commits: [], valid: false, error: 'invalid JSON' });
+  });
+  await t.test('null JSON', () => {
+    const res = parseDoneFile('null', 'a');
+    assert.deepEqual(res, { id: 'a', status: 'invalid', summary: '', commits: [], valid: false, error: 'invalid JSON' });
+  });
+  await t.test('BOM', () => {
+    const res = parseDoneFile('\uFEFF{"status": "done"}', 'a');
+    assert.equal(res.status, 'done');
+  });
+  await t.test('long summary truncated with …', () => {
+    const res = parseDoneFile(`{"summary": "${'a'.repeat(400)}"}`, 'x');
+    assert.equal(res.summary.length, 301);
+    assert.ok(res.summary.endsWith('…'));
+  });
+  await t.test('commits filtered and capped', () => {
+    const res = parseDoneFile('{"commits": [1, "", " c1 ", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18", "c19", "c20", "c21"]}', 'a');
+    assert.equal(res.commits.length, 20);
+    assert.equal(res.commits[0], 'c1');
+    assert.equal(res.commits[19], 'c20');
+  });
+  await t.test('id mismatch error', () => {
+    const res = parseDoneFile('{"id": "b"}', 'a');
+    assert.equal(res.error, 'id mismatch: file says b');
+    assert.equal(res.id, 'a');
+  });
+});
+
+test('findStuck', () => {
+  const pending = {
+    a: { sentAt: 1000, stuckNotified: false },
+    b: { sentAt: 1000, stuckNotified: true },
+    c: { sentAt: 5000, stuckNotified: false }
+  };
+  const nowMs = 10000;
+  
+  assert.deepEqual(findStuck(pending, nowMs, 9), []);
+  assert.deepEqual(findStuck(pending, nowMs, 0.1), ['a']);
+  assert.deepEqual(findStuck(pending, nowMs, 0), []);
+  assert.deepEqual(findStuck(pending, nowMs, -1), []);
+  assert.deepEqual(findStuck(pending, nowMs, undefined), []);
 });
 
