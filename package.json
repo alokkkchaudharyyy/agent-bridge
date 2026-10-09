@@ -38,7 +38,8 @@
   ],
   "main": "./src/extension.js",
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "package": "python scripts/pack.py"
   },
   "contributes": {
     "commands": [
