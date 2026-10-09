@@ -142,7 +142,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function deliver(parsed, label) {
+async function deliver(parsed, label, requestedId) {
   const settings = getSettings();
   const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
     ? vscode.workspace.workspaceFolders[0].uri.fsPath
@@ -169,6 +169,7 @@ async function deliver(parsed, label) {
     relPath: settings.lessonsFile,
     content: lessonsContent
   });
+  const lessonsAdded = body !== parsed.body;
   
   const id = requestedId || core.makeId();
   if (settings.completionSignal && inboxDir) {
@@ -208,7 +209,7 @@ async function deliver(parsed, label) {
     }
 
     const newConvSuffix = parsed.newConversation ? ' (new conversation)' : '';
-    const lessonsSuffix = body !== parsed.body ? ' (+lessons)' : '';
+    const lessonsSuffix = lessonsAdded ? ' (+lessons)' : '';
     log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}${lessonsSuffix} id=${id}`);
     
     if (inboxDir) {
