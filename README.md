@@ -1,158 +1,143 @@
 # Agent Bridge
 
-Let scripts, schedulers, or another AI agent send prompts into your IDE's AI agent chat by writing a file.
+Let Claude Code, scripts or any AI agent hand tasks to your Antigravity / VS Code AI chat, and know when they're done.
+
+[![Open VSX](https://img.shields.io/open-vsx/v/alokkkchaudharyyy/agent-bridge?label=Open%20VSX)](https://open-vsx.org/extension/alokkkchaudharyyy/agent-bridge)
+[![GitHub release](https://img.shields.io/github/v/release/alokkkchaudharyyy/agent-bridge)](https://github.com/alokkkchaudharyyy/agent-bridge/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <!-- TODO: record media/demo.gif, then add: ![Agent Bridge demo](media/demo.gif) -->
 
-## What it does
+You drop a Markdown file into `.agent-inbox/` and Agent Bridge types it into your IDE's agent chat. When the agent finishes, it writes a small "done" file back, so whoever sent the task knows it's finished. Agent Bridge never runs commands itself. It only sends text to the chat.
 
-- Watches `<workspace>/.agent-inbox/` for incoming prompt files.
-- Processes `prompt.md` first, or a queue of files like `001.prompt.md`, `002.prompt.md` in numeric name order (one file per poll).
-- Asks for confirmation before sending each prompt (enabled by default).
-- Sends prompts to Antigravity's agent panel, with a fallback to VS Code chat.
-- Supports a lessons file so the agent learns from review and avoids repeating past mistakes.
-- Built-in completion signals (done/question files, stuck warning) for orchestrators.
+## Install in 1 minute
 
-Agent Bridge only types text into your IDE's agent chat. It never runs commands itself, except the optional onDoneCommand you configure.
+**From Open VSX:** in Antigravity (or VSCodium / Cursor), open the Extensions panel, search **Agent Bridge**, and click Install.
 
-## Install
+**From a .vsix file:** download the latest `agent-bridge-x.y.z.vsix` from [Releases](https://github.com/alokkkchaudharyyy/agent-bridge/releases). Then go to Extensions → `⋯` → **Install from VSIX…** and pick the file.
 
-### Open VSX
-Search for "Agent Bridge" in the Extensions view of Antigravity, VSCodium, or Cursor, then click Install.
+Then reload the window (Command Palette → **Developer: Reload Window**). You should see **Agent Bridge: watching** in the status bar.
 
-### From VSIX
-1. Download `agent-bridge-0.2.0.vsix` from [GitHub Releases](https://github.com/alokkkchaudharyyy/agent-bridge/releases).
-2. Open the Extensions view in your IDE.
-3. Click the `...` menu in the top right corner of the Extensions view.
-4. Select **Install from VSIX...** and choose the downloaded file.
-5. Reload the window.
+## Try it yourself in 30 seconds
 
-## Quick start (60 seconds)
+1. Open your project folder. Click **Add** when Agent Bridge offers to add `.agent-inbox/` to `.gitignore`.
+2. Create `.agent-inbox/prompt.md` containing `Say hello`.
+3. Within a few seconds Agent Bridge asks whether to send it. Click **Send**.
+4. Watch "Say hello" appear in the agent chat. The file moves to `.agent-inbox/archive/`.
 
-1. Open a folder in your IDE.
-2. Look for "Agent Bridge: watching" in the status bar.
-3. Accept the prompt offering to add `.agent-inbox/` to `.gitignore`.
-4. Create `.agent-inbox/prompt.md` with a line of text.
-5. Click **Send** in the confirmation dialog.
-6. Watch your prompt appear in the agent chat.
+## Let Claude Code (or any agent) drive it
 
-Sent files move automatically to `.agent-inbox/archive/`.
+Paste the prompt below **once** into Claude Code, Codex, Gemini CLI or any agent that can read and write files. Replace `{PROJECT_PATH}` with your project folder first. After that, the agent knows how to hand tasks to your IDE agent and wait for the results.
 
-## Use with Claude Code / any agent
+````text
+You are the orchestrator for this project. You plan tasks, hand them to the IDE agent
+(Antigravity / VS Code chat) through the Agent Bridge extension, then review its work.
 
-You can pair external tools with your IDE agent. For example, Claude Code can write task prompts, the IDE agent builds them, and a reviewer checks the results. An orchestrator loop writes `NNN.prompt.md` with an id, the bridge sends it, the agent writes `done/<id>.json`, and the orchestrator reads it to continue.
+PROJECT: {PROJECT_PATH}
+INBOX:   {PROJECT_PATH}/.agent-inbox
 
-The full file protocol (ids, receipts, done/question files, hook env vars, example loops) is in [PROTOCOL.md](PROTOCOL.md).
+SENDING A TASK
+- Pick a task id: letters, digits, . _ - (max 64), e.g. task-001, task-002.
+- Write the prompt as Markdown. First lines:
+    <!-- new-conversation -->   (optional: start a fresh agent chat; use it for unrelated tasks)
+    <!-- id: task-001 -->
+  then the task itself: goal, files involved, acceptance criteria, "run the tests", "commit when done".
+- Save it as INBOX/task-001.tmp, then rename it to INBOX/task-001.prompt.md.
+  (Files named *.prompt.md are sent one at a time in name order; prompt.md is sent first.
+  The rename makes sure a half-written file is never sent.)
+- Never write into INBOX/archive/, INBOX/done/ or INBOX/sent/.
+- If you didn't set an id, find it in INBOX/sent/ (newest file) or the last "id=" in INBOX/bridge.log.
 
-### Instructions to give your agent
+WAITING (never guess with fixed sleeps)
+- INBOX/sent/<id>.json appears when the prompt has actually been sent. A human may need to click
+  "Send" first.
+- The task is over when INBOX/done/<id>.json or INBOX/question/<id>.md appears. Wait for that:
 
-Copy and paste this into your agent's instructions:
+  bash:
+    ID=task-001; INBOX="{PROJECT_PATH}/.agent-inbox"
+    until [ -f "$INBOX/done/$ID.json" ] || [ -f "$INBOX/question/$ID.md" ]; do sleep 15; done
 
-```markdown
-Write your prompt as Markdown to `<workspace>/.agent-inbox/prompt.md`.
-To queue multiple prompts, use zero-padded names like `001.prompt.md`, `002.prompt.md`.
-Include an ID header on the first line: `<!-- id: task-123 -->`.
-Write the full file to a `.tmp` file first and rename it.
-Start the file with `<!-- new-conversation -->` to begin a fresh conversation.
-Never write into `.agent-inbox/archive/`.
-Wait for `.agent-inbox/done/<id>.json` or `.agent-inbox/question/<id>.md` before proceeding. See PROTOCOL.md for details.
+  PowerShell:
+    $id = 'task-001'; $inbox = '{PROJECT_PATH}\.agent-inbox'
+    while (-not (Test-Path "$inbox\done\$id.json") -and -not (Test-Path "$inbox\question\$id.md")) { Start-Sleep 15 }
+
+  If your shell tool has a time limit, run the loop in the background or re-run it until a file appears.
+
+AFTER IT FINISHES
+- done/<id>.json looks like {"id","status":"done"|"failed"|"blocked","summary","commits":[...]}.
+- question/<id>.md means the agent needs a decision. Answer it in a new prompt (you may reuse the id).
+- Review the work yourself: git log / git diff for the listed commits, run the tests, check the
+  acceptance criteria. Don't trust the summary alone.
+- Then send the next prompt: your feedback (what to fix) and/or the next task.
+
+LESSONS (so the IDE agent learns from reviews)
+- When you find a real mistake that could happen again, append one line to
+  {PROJECT_PATH}/AGENT_LESSONS.md:
+    - YYYY-MM-DD · area: mistake → rule
+- One concrete rule per mistake, no duplicates, keep it under ~50 lines. Agent Bridge reminds the
+  IDE agent to read this file on every prompt.
+
+SAFETY
+- Never put secrets (API keys, passwords, tokens) in prompts or in the inbox.
+- Leave Agent Bridge's "confirm before send" setting on unless the user says this project is trusted.
+- Only send tasks the user asked for.
+````
+
+The full file format (ids, receipts, done/question files, hook variables) is in [PROTOCOL.md](PROTOCOL.md).
+
+## Example workflow
+
+```mermaid
+flowchart LR
+    A[Claude Code writes<br/>task-001.prompt.md] --> B[Agent Bridge<br/>sends it to the chat]
+    B --> C[IDE agent builds,<br/>tests and commits]
+    C --> D[Agent writes<br/>done/task-001.json]
+    D --> E[Claude reviews:<br/>diff + tests]
+    E -->|feedback or next task| A
 ```
-
-### Shell examples
-
-Bash:
-```bash
-echo "Refactor auth helper functions in src/auth.js" > .agent-inbox/prompt.md
-```
-
-PowerShell:
-```powershell
-"Refactor auth helper functions in src/auth.js" | Set-Content .agent-inbox/prompt.md
-```
-
-## Lessons: make the agent learn from review
-
-You can record review feedback in `AGENT_LESSONS.md` in the root of your workspace. Each lesson is recorded on a single line in this format:
-
-```markdown
-- YYYY-MM-DD · area: mistake → rule
-```
-
-Configure how lessons are attached using the `agentBridge.lessonsMode` setting:
-- `reference` (default): appends one line asking the agent to read `AGENT_LESSONS.md`.
-- `inline`: pastes the newest lessons directly into each prompt (up to ~4000 characters).
-- `off`: disables lesson reminders.
-
-You can also use the **Agent Bridge: Add lesson** command from the Command Palette to record a new lesson interactively.
-
-### Instructions to give your reviewing agent
-
-Copy and paste this into your reviewing agent's instructions:
-
-```markdown
-After reviewing the IDE agent's work, check for real mistakes that could happen again.
-For each mistake, append one line to `AGENT_LESSONS.md` using this format:
-- YYYY-MM-DD · area: mistake → rule
-
-Rules:
-- Record one lesson per mistake, with a concrete rule.
-- Do not add duplicates.
-- Do not add lessons for one-off typos.
-- Keep the file under approximately 50 lines by merging or removing stale ones.
-```
-
-Note: The model is not retrained. It is reminded of past review rules before each task.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `Agent Bridge: Send current file as prompt` | Sends the active file directly to the agent chat without confirmation. |
-| `Agent Bridge: Pause/Resume` | Toggles queue polling on or off. |
-| `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log` in the editor. |
-| `Agent Bridge: Add lesson` | Prompts for area, mistake, and rule, then appends to `AGENT_LESSONS.md`. |
-
-Clicking the status bar item also opens `.agent-inbox/bridge.log`.
+| `Agent Bridge: Send current file as prompt` | Sends the open file to the agent chat right away (no confirmation). |
+| `Agent Bridge: Pause/Resume` | Stops or restarts sending from the inbox. Done/question files are still watched. |
+| `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log`. Clicking the status bar does the same. |
+| `Agent Bridge: Add lesson` | Asks for area, mistake and rule, then appends a line to `AGENT_LESSONS.md`. |
 
 ## Settings
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `agentBridge.inboxPath` | `""` | Folder to watch for prompts. Empty = `<workspace>/.agent-inbox`. Relative paths are resolved against the first workspace folder. |
-| `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox folder for new prompt files (in milliseconds). Minimum is 1000. |
+| `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. Relative paths start at the first workspace folder. |
+| `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
 | `agentBridge.confirmBeforeSend` | `true` | Ask before sending each prompt. **Keep this on** unless you trust everything that can write to the inbox. |
-| `agentBridge.newConversationMarker` | `"<!-- new-conversation -->"` | If a prompt file starts with this, a new agent conversation is started first. Empty = disabled. |
-| `agentBridge.lessonsFile` | `"AGENT_LESSONS.md"` | Lessons file (relative to the workspace or absolute) that reviewers append mistakes to. |
-| `agentBridge.lessonsMode` | `"reference"` | How to include review lessons in prompts sent to the agent (`reference`, `inline`, or `off`). |
-| `agentBridge.completionSignal` | `true` | Append a footer asking the agent to write `done/<id>.json` (or `question/<id>.md`) when it finishes. |
-| `agentBridge.stuckAfterMinutes` | `30` | Warn if no done/question file arrives within this many minutes. 0 = never. |
-| `agentBridge.onDoneCommand` | `""` | Optional shell command run when a task finishes, asks a question, or looks stuck. |
-
-## Safety
-
-> Anything that can write to the inbox can talk to your agent. Do NOT turn off confirmBeforeSend while your agent is allowed to auto-run terminal commands, especially on a machine or folder others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the .gitignore offer does this).
-> 
-> The `onDoneCommand` runs a shell command you configure; it is only read from user settings, never from a workspace, gets task details only via env vars, and is disabled in untrusted workspaces. Treat `AGENT_BRIDGE_SUMMARY` as untrusted text.
-
-## Known limits
-
-- Relies on the internal Antigravity command `antigravity.sendPromptToAgentPanel`, which is not a public API and may change.
-- In plain VS Code, the fallback uses `workbench.action.chat.open`, which in some versions only prefills the chat instead of sending.
-- Multi-root workspaces use the first workspace folder.
-- Polling (default 4 seconds), not instant.
+| `agentBridge.newConversationMarker` | `<!-- new-conversation -->` | A prompt starting with this opens a new agent chat first. Empty = off. |
+| `agentBridge.completionSignal` | `true` | Ask the agent to write `done/<id>.json` or `question/<id>.md` when it finishes. |
+| `agentBridge.stuckAfterMinutes` | `30` | Warn if nothing comes back within this many minutes. 0 = never. |
+| `agentBridge.lessonsFile` | `AGENT_LESSONS.md` | Where review lessons live (relative to the workspace, or absolute). |
+| `agentBridge.lessonsMode` | `reference` | `reference`: remind the agent to read the file. `inline`: paste the newest lessons. `off`: nothing. |
+| `agentBridge.onDoneCommand` | `""` | Optional shell command run on done / question / stuck. User settings only. See [PROTOCOL.md](PROTOCOL.md#ondonecommand-env-vars). |
 
 ## Troubleshooting
 
-- **Check logs**: Check `.agent-inbox/bridge.log` or click the status bar item to inspect details.
-- **"no supported agent chat found"**: Neither Antigravity nor VS Code chat commands exist in the current environment.
-- **Status stuck on error**: Read the log, then run `Developer: Reload Window`.
-- **Nothing happens**: Make sure the file name is exactly `prompt.md` or ends in `.prompt.md`, and that the bridge is not paused.
-- **Files modified recently**: Files modified in the last ~1.5s are skipped until writing finishes.
+- **Nothing arrives in the chat.** Open the log (click the status bar) and read the last lines. Check that the file is named exactly `prompt.md` or ends in `.prompt.md`, sits directly in `.agent-inbox/`, and that the status bar doesn't say *paused*. Files changed in the last ~1.5 s are skipped until writing stops. Still stuck? Run **Developer: Reload Window**.
+- **Two IDE windows on the same folder.** Both windows watch the same inbox and may race for the same file. Keep one window open per folder, or pause Agent Bridge in the other one.
+- **Plain VS Code, Cursor and others.** The Antigravity command doesn't exist there, so Agent Bridge falls back to VS Code's chat (`workbench.action.chat.open`). Some versions only prefill the chat box, so you press Enter. If no chat exists at all, you get one "no supported agent chat found" error, and the prompt stays in `archive/`.
+- **"may be stuck" warning.** The agent didn't write a done or question file in time. Check the chat. It may still be working, or it may have forgotten the last step.
 
-## Contributing
+## Safety
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and project layout.
+> Anything that can write to the inbox can talk to your agent. **Don't turn off `confirmBeforeSend`** while your agent may auto-run terminal commands, especially in folders others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the `.gitignore` offer does this) and never put secrets in prompts.
+>
+> `onDoneCommand` is the only thing Agent Bridge runs itself. It is read only from your user settings (never from a workspace), gets task details only through environment variables, and is disabled in untrusted workspaces. Treat `AGENT_BRIDGE_SUMMARY` as untrusted text.
 
-## License
+## Known limits
 
-[MIT](LICENSE)
+- Antigravity support relies on the internal command `antigravity.sendPromptToAgentPanel`. It isn't a public API and may change in an update.
+- The done/question signal depends on the agent following the footer instructions. Most do, but not always. That's what the stuck warning is for.
+- Multi-root workspaces use the first folder. The inbox is polled (every 4 s by default), not watched instantly.
+
+## Contributing & license
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed, see [LICENSE](LICENSE).
