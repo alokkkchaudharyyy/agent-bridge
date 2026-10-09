@@ -1,6 +1,7 @@
 const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
+const child_process = require('child_process');
 const core = require('./core');
 
 let outputChannel;
@@ -237,6 +238,47 @@ async function sendFile(entry, parsed, headerId) {
   await deliver(parsed, entry.name, headerId);
 }
 
+function runHook(event, id, status, file, summary) {
+  const v = vscode.workspace.getConfiguration('agentBridge').inspect('onDoneCommand');
+  const cmd = (v && typeof v.globalValue === 'string') ? v.globalValue.trim() : '';
+  if (!cmd) return;
+  if (!vscode.workspace.isTrusted) {
+    log('onDoneCommand skipped: workspace not trusted');
+    return;
+  }
+  const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath
+    : undefined;
+  
+  const child = child_process.spawn(cmd, {
+    shell: true,
+    cwd: firstWs || inboxDir,
+    windowsHide: true,
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      AGENT_BRIDGE_EVENT: event,
+      AGENT_BRIDGE_ID: id,
+      AGENT_BRIDGE_STATUS: status,
+      AGENT_BRIDGE_FILE: file || '',
+      AGENT_BRIDGE_SUMMARY: summary || '',
+      AGENT_BRIDGE_INBOX: inboxDir || ''
+    }
+  });
+
+  const timeout = setTimeout(() => {
+    try { child.kill(); } catch (_) {}
+  }, 60000);
+
+  child.on('error', (e) => {
+    log(`onDoneCommand error: ${e.message}`);
+  });
+  child.on('exit', (code) => {
+    clearTimeout(timeout);
+    log(`onDoneCommand (${event} ${id}) exited ${code}`);
+  });
+}
+
 function listOutbox(sub, ext) {
   const dir = path.join(inboxDir, sub);
   let dirEntries;
@@ -294,6 +336,8 @@ function handleDone(item) {
       else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
     });
   }
+  
+  runHook('done', item.id, info.status, item.file, info.summary);
 }
 
 function handleQuestion(item) {
@@ -307,6 +351,8 @@ function handleQuestion(item) {
     if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
     else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
   });
+  
+  runHook('question', item.id, 'question', item.file, core.preview(text, 300));
 }
 
 function scanOutbox() {
@@ -350,6 +396,8 @@ function checkStuck() {
         }
       }
     });
+    
+    runHook('stuck', id, 'stuck', '', '');
   }
 }
 
