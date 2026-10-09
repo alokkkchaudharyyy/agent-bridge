@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-09
+
+### Fixed
+- Completion footer now uses the **absolute** inbox path for `done/` and `question/`. In multi-root workspaces the agent could resolve the old relative path against the wrong folder, so the bridge never saw the done file.
+- The lessons reminder (`lessonsMode: reference`) also points at the absolute lessons file path.
+
+### Changed
+- `agentBridge.confirmBeforeSend` is now `"auto" | "always" | "never"`, default `"auto"`: the first prompt in a project asks once ("Always for this project" / "Ask each time" / "View prompt") and the answer is remembered per project. Old `true` / `false` values still work as `always` / `never`.
+- `never` is only honored from user settings, so a workspace's `.vscode/settings.json` can't switch confirmation off.
+
+### Added
+- Command **Agent Bridge: Reset auto-send choice**.
+- Tests for multi-root footer paths and the first-time auto-send choice.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added
