@@ -12,7 +12,50 @@ let paused = false;
 let busy = false;
 let skip = new Set();
 let noTargetWarned = false;
+let gitignoreOffered = false;
 let extensionContext = null;
+
+function checkGitignore(wsFolder, rel) {
+  if (extensionContext && extensionContext.workspaceState.get('agentBridge.gitignoreDeclined') === true) {
+    return;
+  }
+
+  const gitignorePath = path.join(wsFolder, '.gitignore');
+  let content = '';
+  try {
+    if (fs.existsSync(gitignorePath)) {
+      content = fs.readFileSync(gitignorePath, 'utf8');
+    }
+  } catch (_) {
+    content = '';
+  }
+
+  if (!core.gitignoreCovers(content, rel)) {
+    vscode.window.showInformationMessage(
+      `Agent Bridge: add ${rel}/ to .gitignore?`,
+      'Add',
+      'Not now',
+      "Don't ask again"
+    ).then((choice) => {
+      if (choice === 'Add') {
+        try {
+          let toAppend = `${rel}/\n`;
+          if (content && !content.endsWith('\n')) {
+            toAppend = '\n' + toAppend;
+          }
+          fs.appendFileSync(gitignorePath, toAppend, 'utf8');
+          log(`added ${rel}/ to .gitignore`);
+        } catch (e) {
+          log(`failed to update .gitignore: ${e.message}`);
+        }
+      } else if (choice === "Don't ask again") {
+        if (extensionContext) {
+          extensionContext.workspaceState.update('agentBridge.gitignoreDeclined', true);
+        }
+      }
+    });
+  }
+}
 
 function getSettings() {
   const cfg = vscode.workspace.getConfiguration('agentBridge');
@@ -325,6 +368,14 @@ function start() {
   }
   log(`bridge active (inbox: ${inboxDir})`);
   setStatus(paused ? 'paused' : 'watching');
+
+  if (!gitignoreOffered && firstWs && inboxDir) {
+    const rel = path.relative(firstWs, inboxDir);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel) && rel !== '') {
+      gitignoreOffered = true;
+      checkGitignore(firstWs, rel.replace(/\\/g, '/'));
+    }
+  }
 
   timer = setInterval(poll, settings.pollIntervalMs);
   poll();
