@@ -394,6 +394,85 @@ function activate(context) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.addLesson', async () => {
+      const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
+        ? vscode.workspace.workspaceFolders[0].uri.fsPath
+        : undefined;
+
+      if (!firstWs) {
+        vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
+        return;
+      }
+
+      const area = await vscode.window.showInputBox({
+        prompt: 'Area (optional), e.g. tests, ui, git'
+      });
+      if (area === undefined) return;
+
+      const mistake = await vscode.window.showInputBox({
+        prompt: 'What went wrong?',
+        validateInput: (value) => (!value || !value.trim() ? 'Mistake cannot be empty' : null)
+      });
+      if (mistake === undefined) return;
+
+      const rule = await vscode.window.showInputBox({
+        prompt: 'Rule to follow next time',
+        validateInput: (value) => (!value || !value.trim() ? 'Rule cannot be empty' : null)
+      });
+      if (rule === undefined) return;
+
+      const settings = getSettings();
+      const lessonsFile = settings.lessonsFile;
+      const lessonsPath = path.isAbsolute(lessonsFile)
+        ? lessonsFile
+        : path.join(firstWs, lessonsFile);
+
+      const defaultHeader = '# Agent lessons\n\nMistakes found in code review. Agents: read this before every task and do not repeat them.\nFormat: - YYYY-MM-DD · area: mistake → rule\n\n';
+
+      let content = '';
+      try {
+        if (fs.existsSync(lessonsPath)) {
+          content = fs.readFileSync(lessonsPath, 'utf8');
+        } else {
+          fs.writeFileSync(lessonsPath, defaultHeader, 'utf8');
+          content = defaultHeader;
+        }
+      } catch (e) {
+        log(`failed to access lessons file: ${e.message}`);
+        return;
+      }
+
+      if (core.hasLesson(content, mistake, rule)) {
+        vscode.window.showInformationMessage('Agent Bridge: that lesson is already recorded.');
+        return;
+      }
+
+      let prefix = '';
+      if (content && !content.endsWith('\n')) {
+        prefix = '\n';
+      }
+      const formatted = core.formatLesson(area, mistake, rule, Date.now()) + '\n';
+      try {
+        fs.appendFileSync(lessonsPath, prefix + formatted, 'utf8');
+      } catch (e) {
+        log(`failed to append lesson: ${e.message}`);
+        return;
+      }
+
+      log('lesson added');
+      const action = await vscode.window.showInformationMessage('Agent Bridge: lesson added.', 'Open');
+      if (action === 'Open') {
+        try {
+          const doc = await vscode.workspace.openTextDocument(lessonsPath);
+          await vscode.window.showTextDocument(doc);
+        } catch (e) {
+          log(`failed to open lessons file: ${e.message}`);
+        }
+      }
+    })
+  );
+
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentBridge')) {
         stop();
