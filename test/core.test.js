@@ -8,7 +8,11 @@ const {
   archiveName,
   preview,
   resolveInboxPath,
-  gitignoreCovers
+  gitignoreCovers,
+  parseLessons,
+  formatLesson,
+  hasLesson,
+  applyLessons
 } = require('../src/core.js');
 
 test('selectNext', async (t) => {
@@ -257,3 +261,161 @@ test('gitignoreCovers', () => {
   assert.equal(gitignoreCovers(null), false);
   assert.equal(gitignoreCovers('other-folder'), false);
 });
+
+test('parseLessons', () => {
+  assert.deepEqual(parseLessons(undefined), []);
+  assert.deepEqual(parseLessons(''), []);
+
+  const content = `# Project Lessons
+Here is some introductory prose that should be ignored.
+
+- 2026-10-09 · core: forgot settleMs check → always check settleMs
+Some more prose in between.
+
+  - 2026-10-08 · tests: missed CRLF edge case → test both LF and CRLF
+
+### Another heading
+- general: do not rush → take time to read requirements
+`;
+  assert.deepEqual(parseLessons(content), [
+    '2026-10-09 · core: forgot settleMs check → always check settleMs',
+    '2026-10-08 · tests: missed CRLF edge case → test both LF and CRLF',
+    'general: do not rush → take time to read requirements'
+  ]);
+
+  // CRLF handling
+  const crlfContent = '# Heading\r\n- First lesson\r\n\r\nProse line\r\n- Second lesson\r\n';
+  assert.deepEqual(parseLessons(crlfContent), ['First lesson', 'Second lesson']);
+});
+
+test('formatLesson', () => {
+  const fixedNowMs = Date.UTC(2026, 9, 9, 12, 0, 0);
+
+  // Exact match for a fixed nowMs
+  const formatted = formatLesson('core', 'forgot settleMs', 'check settleMs', fixedNowMs);
+  assert.equal(formatted, '- 2026-10-09 · core: forgot settleMs → check settleMs');
+
+  // Whitespace collapsing inside area, mistake, and rule
+  const messy = formatLesson('  core \n\t bridge  ', ' did \n  something   wrong \t', '  do\n  this   instead ', fixedNowMs);
+  assert.equal(messy, '- 2026-10-09 · core bridge: did something wrong → do this instead');
+
+  // 'general' default if area is empty after trimming
+  assert.equal(formatLesson('', 'mistake', 'rule', fixedNowMs), '- 2026-10-09 · general: mistake → rule');
+  assert.equal(formatLesson('   \n\t  ', 'mistake', 'rule', fixedNowMs), '- 2026-10-09 · general: mistake → rule');
+  assert.equal(formatLesson(undefined, 'mistake', 'rule', fixedNowMs), '- 2026-10-09 · general: mistake → rule');
+
+  // Throws on empty mistake or rule
+  assert.throws(() => formatLesson('area', '', 'rule', fixedNowMs), /empty/);
+  assert.throws(() => formatLesson('area', '   ', 'rule', fixedNowMs), /empty/);
+  assert.throws(() => formatLesson('area', 'mistake', '', fixedNowMs), /empty/);
+  assert.throws(() => formatLesson('area', 'mistake', '   ', fixedNowMs), /empty/);
+});
+
+test('hasLesson', () => {
+  const content = `# Lessons
+- 2026-10-09 · core: forgot settleMs check → always check settleMs
+- 2026-10-08 · git: bad commit msg → use exact message
+`;
+
+  // Matches both mistake and rule
+  assert.equal(hasLesson(content, 'forgot settleMs check', 'always check settleMs'), true);
+
+  // Case-insensitive
+  assert.equal(hasLesson(content, 'FORGOT SETTLEMS CHECK', 'ALWAYS CHECK SETTLEMS'), true);
+
+  // Whitespace-collapsed matching
+  assert.equal(hasLesson(content, 'forgot  \n settleMs   check', 'always \t check   settleMs'), true);
+
+  // Partial match in text
+  assert.equal(hasLesson(content, 'settleMs check', 'check settleMs'), true);
+
+  // Missing rule or mistake -> false
+  assert.equal(hasLesson(content, 'forgot settleMs check', 'nonexistent rule'), false);
+  assert.equal(hasLesson(content, 'nonexistent mistake', 'always check settleMs'), false);
+
+  // Empty or non-matching content
+  assert.equal(hasLesson('', 'mistake', 'rule'), false);
+  assert.equal(hasLesson(undefined, 'mistake', 'rule'), false);
+});
+
+test('applyLessons', async (t) => {
+  const sampleLessons = `- 2026-10-07 · l1: mistake 1 → rule 1
+- 2026-10-08 · l2: mistake 2 → rule 2
+- 2026-10-09 · l3: mistake 3 → rule 3`;
+
+  await t.test('mode off returns body unchanged', () => {
+    const res = applyLessons('My prompt', {
+      mode: 'off',
+      relPath: '.agent-inbox/lessons.md',
+      content: sampleLessons
+    });
+    assert.equal(res, 'My prompt');
+  });
+
+  await t.test('empty file / no lessons returns body unchanged', () => {
+    const res1 = applyLessons('My prompt', {
+      mode: 'reference',
+      relPath: '.agent-inbox/lessons.md',
+      content: '# Just heading\nNo lessons here'
+    });
+    assert.equal(res1, 'My prompt');
+
+    const res2 = applyLessons('My prompt', {
+      mode: 'inline',
+      relPath: '.agent-inbox/lessons.md',
+      content: ''
+    });
+    assert.equal(res2, 'My prompt');
+  });
+
+  await t.test('mode reference appends reference notice', () => {
+    const res = applyLessons('My prompt', {
+      mode: 'reference',
+      relPath: '.agent-inbox/lessons.md',
+      content: sampleLessons
+    });
+    assert.equal(
+      res,
+      'My prompt\n\n---\nBefore you start: read .agent-inbox/lessons.md (lessons from past reviews of your work in this repo) and do not repeat those mistakes.'
+    );
+  });
+
+  await t.test('mode inline when all lessons fit keeps all without dropped note', () => {
+    const res = applyLessons('My prompt', {
+      mode: 'inline',
+      relPath: '.agent-inbox/lessons.md',
+      content: sampleLessons,
+      maxChars: 4000
+    });
+    const expected = 'My prompt\n\n---\nLessons from past reviews of your work in this repo (do not repeat these mistakes):\n' +
+      sampleLessons;
+    assert.equal(res, expected);
+  });
+
+  await t.test('mode inline truncated keeps newest and reports dropped count', () => {
+    const res = applyLessons('My prompt', {
+      mode: 'inline',
+      relPath: '.agent-inbox/lessons.md',
+      content: sampleLessons,
+      maxChars: 80
+    });
+
+    const expectedKept = '- 2026-10-08 · l2: mistake 2 → rule 2\n- 2026-10-09 · l3: mistake 3 → rule 3';
+    const expected = 'My prompt\n\n---\nLessons from past reviews of your work in this repo (do not repeat these mistakes):\n' +
+      expectedKept + '\n(1 older lessons in .agent-inbox/lessons.md)';
+    assert.equal(res, expected);
+  });
+
+  await t.test('unknown mode behaves like reference', () => {
+    const res = applyLessons('My prompt', {
+      mode: 'something-else',
+      relPath: '.agent-inbox/lessons.md',
+      content: sampleLessons
+    });
+    assert.equal(
+      res,
+      'My prompt\n\n---\nBefore you start: read .agent-inbox/lessons.md (lessons from past reviews of your work in this repo) and do not repeat those mistakes.'
+    );
+  });
+});
+

@@ -139,6 +139,90 @@ function gitignoreCovers(content, dirName = '.agent-inbox') {
   return false;
 }
 
+function normalizeWhitespace(str) {
+  return typeof str === 'string' ? str.replace(/\s+/g, ' ').trim() : '';
+}
+
+function parseLessons(content) {
+  if (typeof content !== 'string' || content.length === 0) {
+    return [];
+  }
+  const lessons = [];
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ')) {
+      lessons.push(trimmed.slice(2).trim());
+    }
+  }
+  return lessons;
+}
+
+function formatLesson(area, mistake, rule, nowMs) {
+  const cleanArea = normalizeWhitespace(area) || 'general';
+  const cleanMistake = normalizeWhitespace(mistake);
+  const cleanRule = normalizeWhitespace(rule);
+  if (!cleanMistake || !cleanRule) {
+    throw new Error('Mistake and rule must not be empty');
+  }
+  const date = new Date(nowMs).toISOString().slice(0, 10);
+  return `- ${date} · ${cleanArea}: ${cleanMistake} → ${cleanRule}`;
+}
+
+function hasLesson(content, mistake, rule) {
+  const normMistake = normalizeWhitespace(mistake).toLowerCase();
+  const normRule = normalizeWhitespace(rule).toLowerCase();
+  if (!normMistake || !normRule) {
+    return false;
+  }
+  const lessons = parseLessons(content);
+  for (const lesson of lessons) {
+    const normLesson = normalizeWhitespace(lesson).toLowerCase();
+    if (normLesson.includes(normMistake) && normLesson.includes(normRule)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function applyLessons(body, opts = {}) {
+  const {
+    mode = 'reference',
+    relPath = '',
+    content = '',
+    maxChars = 4000
+  } = opts;
+
+  const lessons = parseLessons(content);
+  if (mode === 'off' || lessons.length === 0) {
+    return body;
+  }
+
+  if (mode === 'inline') {
+    const kept = [];
+    let currentChars = 0;
+    for (let i = lessons.length - 1; i >= 0; i--) {
+      const rendered = '- ' + lessons[i] + '\n';
+      if (currentChars + rendered.length <= maxChars) {
+        kept.unshift(rendered);
+        currentChars += rendered.length;
+      } else {
+        break;
+      }
+    }
+
+    const droppedCount = lessons.length - kept.length;
+    let lines = kept.join('').trimEnd();
+    if (droppedCount > 0) {
+      lines += (lines.length > 0 ? '\n' : '') + `(${droppedCount} older lessons in ${relPath})`;
+    }
+
+    return body + '\n\n---\nLessons from past reviews of your work in this repo (do not repeat these mistakes):\n' + lines;
+  }
+
+  return body + '\n\n---\n' + `Before you start: read ${relPath} (lessons from past reviews of your work in this repo) and do not repeat those mistakes.`;
+}
+
 module.exports = {
   selectNext,
   skipKey,
@@ -146,5 +230,10 @@ module.exports = {
   archiveName,
   preview,
   resolveInboxPath,
-  gitignoreCovers
+  gitignoreCovers,
+  parseLessons,
+  formatLesson,
+  hasLesson,
+  applyLessons
 };
+
