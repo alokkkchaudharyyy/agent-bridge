@@ -14,6 +14,13 @@ let skip = new Set();
 let noTargetWarned = false;
 let gitignoreOffered = false;
 let extensionContext = null;
+let pending = {};
+
+function savePending() {
+  if (extensionContext) {
+    extensionContext.workspaceState.update('agentBridge.pending', pending);
+  }
+}
 
 function checkGitignore(wsFolder, rel) {
   if (extensionContext && extensionContext.workspaceState.get('agentBridge.gitignoreDeclined') === true) {
@@ -65,7 +72,9 @@ function getSettings() {
     confirmBeforeSend: cfg.get('confirmBeforeSend', true),
     newConversationMarker: cfg.get('newConversationMarker', '<!-- new-conversation -->'),
     lessonsFile: cfg.get('lessonsFile', 'AGENT_LESSONS.md'),
-    lessonsMode: cfg.get('lessonsMode', 'reference')
+    lessonsMode: cfg.get('lessonsMode', 'reference'),
+    completionSignal: cfg.get('completionSignal', true),
+    stuckAfterMinutes: cfg.get('stuckAfterMinutes', 30)
   };
 }
 
@@ -84,10 +93,10 @@ function log(line) {
   }
 }
 
-function setStatus(kind) {
+function setStatus(kind, customText, warn) {
   if (!statusItem) return;
 
-  if (kind !== 'sent' && revertTimer) {
+  if (kind !== 'sent' && kind !== 'event' && revertTimer) {
     clearTimeout(revertTimer);
     revertTimer = null;
   }
@@ -95,6 +104,16 @@ function setStatus(kind) {
   if (kind === 'error') {
     statusItem.text = '$(error) Agent Bridge: error';
     statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+  } else if (kind === 'event') {
+    statusItem.text = customText;
+    statusItem.backgroundColor = warn ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+    if (revertTimer) {
+      clearTimeout(revertTimer);
+    }
+    revertTimer = setTimeout(() => {
+      revertTimer = null;
+      setStatus(paused ? 'paused' : 'watching');
+    }, 60000);
   } else {
     statusItem.backgroundColor = undefined;
     if (kind === 'watching') {
@@ -102,7 +121,7 @@ function setStatus(kind) {
     } else if (kind === 'paused') {
       statusItem.text = '$(debug-pause) Agent Bridge: paused';
     } else if (kind === 'sent') {
-      statusItem.text = '$(check) Agent Bridge: sent';
+      statusItem.text = customText || '$(check) Agent Bridge: sent';
       if (revertTimer) {
         clearTimeout(revertTimer);
       }
@@ -142,11 +161,17 @@ async function deliver(parsed, label) {
     }
   }
 
-  const body = core.applyLessons(parsed.body, {
+  let body = core.applyLessons(parsed.body, {
     mode: settings.lessonsMode,
     relPath: settings.lessonsFile,
     content: lessonsContent
   });
+  
+  const id = requestedId || core.makeId();
+  if (settings.completionSignal && inboxDir) {
+    const inboxRel = core.relInboxForPrompt(inboxDir, firstWs);
+    body = core.withFooter(body, core.buildFooter({ id, inboxRel }));
+  }
 
   try {
     const cmdsList = await vscode.commands.getCommands(true);
@@ -181,19 +206,33 @@ async function deliver(parsed, label) {
 
     const newConvSuffix = parsed.newConversation ? ' (new conversation)' : '';
     const lessonsSuffix = body !== parsed.body ? ' (+lessons)' : '';
-    log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}${lessonsSuffix}`);
-    setStatus('sent');
+    log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}${lessonsSuffix} id=${id}`);
+    
+    if (inboxDir) {
+      try {
+        const receipt = JSON.stringify({ id, file: label, sentAt: new Date().toISOString(), via, chars: body.length, completionSignal: settings.completionSignal }, null, 2);
+        fs.writeFileSync(path.join(inboxDir, 'sent', `${id}.json`), receipt, 'utf8');
+      } catch (e) {
+        log(`failed to write sent receipt: ${e.message}`);
+      }
+    }
+    if (settings.completionSignal) {
+      pending[id] = { sentAt: Date.now(), label, stuckNotified: false };
+      savePending();
+    }
+    
+    setStatus('sent', '$(check) Agent Bridge: sent ' + id);
   } catch (e) {
     log(`send failed (${label}): ${e.message}`);
     setStatus('error');
   }
 }
 
-async function sendFile(entry, parsed) {
+async function sendFile(entry, parsed, headerId) {
   const filePath = path.join(inboxDir, entry.name);
   const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'sent'));
   fs.renameSync(filePath, dest);
-  await deliver(parsed, entry.name);
+  await deliver(parsed, entry.name, headerId);
 }
 
 async function handle(entry) {
@@ -207,7 +246,8 @@ async function handle(entry) {
   }
 
   const settings = getSettings();
-  const parsed = core.parsePrompt(text, settings.newConversationMarker);
+  const { id: headerId, text: cleaned } = core.extractId(text);
+  const parsed = core.parsePrompt(cleaned, settings.newConversationMarker);
 
   if (parsed.isEmpty) {
     const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
@@ -221,7 +261,7 @@ async function handle(entry) {
   }
 
   if (!settings.confirmBeforeSend) {
-    await sendFile(entry, parsed);
+    await sendFile(entry, parsed, headerId);
     return;
   }
 
@@ -235,7 +275,7 @@ async function handle(entry) {
   );
 
   if (choice === 'Send') {
-    await sendFile(entry, parsed);
+    await sendFile(entry, parsed, headerId);
   } else if (choice === 'Discard') {
     const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
     try {
@@ -266,7 +306,8 @@ async function handle(entry) {
         log(`read failed (${entry.name}): ${e.message}`);
         return;
       }
-      const reParsed = core.parsePrompt(reReadText, settings.newConversationMarker);
+      const { id: headerIdRe, text: cleanedRe } = core.extractId(reReadText);
+      const reParsed = core.parsePrompt(cleanedRe, settings.newConversationMarker);
       if (reParsed.isEmpty) {
         const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
         try {
@@ -277,7 +318,7 @@ async function handle(entry) {
         log(`empty prompt discarded: ${entry.name}`);
         return;
       }
-      await sendFile(entry, reParsed);
+      await sendFile(entry, reParsed, headerIdRe);
     } else if (viewChoice === 'Discard') {
       const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
       try {
@@ -359,6 +400,9 @@ function start() {
   try {
     fs.mkdirSync(inboxDir, { recursive: true });
     fs.mkdirSync(path.join(inboxDir, 'archive'), { recursive: true });
+    fs.mkdirSync(path.join(inboxDir, 'done'), { recursive: true });
+    fs.mkdirSync(path.join(inboxDir, 'question'), { recursive: true });
+    fs.mkdirSync(path.join(inboxDir, 'sent'), { recursive: true });
   } catch (_) {
     /* ignore directory creation errors */
   }
@@ -384,6 +428,7 @@ function start() {
 function activate(context) {
   extensionContext = context;
   paused = Boolean(context.workspaceState.get('agentBridge.paused', false));
+  pending = context.workspaceState.get('agentBridge.pending', {});
 
   outputChannel = vscode.window.createOutputChannel('Agent Bridge');
   context.subscriptions.push(outputChannel);
@@ -402,12 +447,13 @@ function activate(context) {
       }
       const doc = editor.document;
       const settings = getSettings();
-      const parsed = core.parsePrompt(doc.getText(), settings.newConversationMarker);
+      const { id: headerId, text: cleaned } = core.extractId(doc.getText());
+      const parsed = core.parsePrompt(cleaned, settings.newConversationMarker);
       if (parsed.isEmpty) {
         vscode.window.showWarningMessage('Agent Bridge: the file is empty.');
         return;
       }
-      await deliver(parsed, path.basename(doc.fileName));
+      await deliver(parsed, path.basename(doc.fileName), headerId);
     })
   );
 
