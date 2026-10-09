@@ -119,9 +119,70 @@ async function deliver(parsed, label) {
   }
 }
 
+async function sendFile(entry, parsed) {
+  const filePath = path.join(inboxDir, entry.name);
+  const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'sent'));
+  fs.renameSync(filePath, dest);
+  await deliver(parsed, entry.name);
+}
+
+async function handle(entry) {
+  const filePath = path.join(inboxDir, entry.name);
+  let text;
+  try {
+    text = fs.readFileSync(filePath, 'utf8');
+  } catch (e) {
+    log(`read failed (${entry.name}): ${e.message}`);
+    return;
+  }
+
+  const settings = getSettings();
+  const parsed = core.parsePrompt(text, settings.newConversationMarker);
+
+  if (parsed.isEmpty) {
+    const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
+    try {
+      fs.renameSync(filePath, dest);
+    } catch (_) {
+      /* ignore rename errors */
+    }
+    log(`empty prompt discarded: ${entry.name}`);
+    return;
+  }
+
+  await sendFile(entry, parsed);
+}
+
 async function poll() {
   if (paused || busy || !inboxDir) return;
-  // Poll logic will be implemented in subsequent step
+  busy = true;
+  try {
+    const dirEntries = fs.readdirSync(inboxDir, { withFileTypes: true });
+    const entries = [];
+    for (const de of dirEntries) {
+      if (de.name === 'prompt.md' || (de.name.endsWith('.prompt.md') && de.name.length > '.prompt.md'.length)) {
+        try {
+          const s = fs.statSync(path.join(inboxDir, de.name));
+          entries.push({
+            name: de.name,
+            isFile: s.isFile(),
+            mtimeMs: s.mtimeMs
+          });
+        } catch (_) {
+          /* ignore stat errors */
+        }
+      }
+    }
+    const entry = core.selectNext(entries, Date.now(), { skip });
+    if (entry) {
+      await handle(entry);
+    }
+  } catch (e) {
+    log(`poll error: ${e.message}`);
+    setStatus('error');
+  } finally {
+    busy = false;
+  }
 }
 
 function stop() {
