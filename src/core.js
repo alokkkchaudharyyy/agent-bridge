@@ -361,7 +361,42 @@ function findStuck(pending, nowMs, stuckAfterMinutes) {
   return ids;
 }
 
+// confirmBeforeSend: 'auto' (ask once per project), 'always' (ask every time), 'never'.
+// Old boolean values map to 'always' / 'never'.
+function normalizeConfirmMode(value) {
+  if (value === true) return 'always';
+  if (value === false) return 'never';
+  if (value === 'auto' || value === 'always' || value === 'never') return value;
+  return 'auto';
+}
+
+// 'never' only counts when it comes from user settings, so a cloned repo's
+// .vscode/settings.json cannot switch confirmation off.
+function effectiveConfirmMode(inspected) {
+  const i = inspected || {};
+  const pick = [i.workspaceFolderValue, i.workspaceValue, i.globalValue, i.defaultValue]
+    .find((v) => v !== undefined);
+  const mode = normalizeConfirmMode(pick);
+  if (mode === 'never' && normalizeConfirmMode(i.globalValue) !== 'never') {
+    return 'auto';
+  }
+  return mode;
+}
+
+// savedChoice is the per-workspace answer to the one-time question: 'always' | 'ask' | undefined.
+// Returns 'send' (no dialog), 'ask' (per-prompt dialog) or 'first' (the one-time question).
+function decideConfirm(mode, savedChoice) {
+  if (mode === 'never') return 'send';
+  if (mode === 'always') return 'ask';
+  if (savedChoice === 'always') return 'send';
+  if (savedChoice === 'ask') return 'ask';
+  return 'first';
+}
+
 module.exports = {
+  normalizeConfirmMode,
+  effectiveConfirmMode,
+  decideConfirm,
   selectNext,
   skipKey,
   parsePrompt,

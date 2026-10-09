@@ -20,7 +20,10 @@ const {
   buildFooter,
   withFooter,
   parseDoneFile,
-  findStuck
+  findStuck,
+  normalizeConfirmMode,
+  effectiveConfirmMode,
+  decideConfirm
 } = require('../src/core.js');
 
 test('selectNext', async (t) => {
@@ -568,3 +571,32 @@ test('findStuck', () => {
   assert.deepEqual(findStuck(pending, nowMs, undefined), []);
 });
 
+
+test('normalizeConfirmMode', () => {
+  assert.equal(normalizeConfirmMode(true), 'always');
+  assert.equal(normalizeConfirmMode(false), 'never');
+  assert.equal(normalizeConfirmMode('auto'), 'auto');
+  assert.equal(normalizeConfirmMode('always'), 'always');
+  assert.equal(normalizeConfirmMode('never'), 'never');
+  assert.equal(normalizeConfirmMode(undefined), 'auto');
+  assert.equal(normalizeConfirmMode('nonsense'), 'auto');
+});
+
+test('effectiveConfirmMode only honors never from user settings', () => {
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto' }), 'auto');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', globalValue: 'never' }), 'never');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', globalValue: false }), 'never');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', workspaceValue: 'never' }), 'auto');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', workspaceFolderValue: false }), 'auto');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', globalValue: 'never', workspaceValue: 'always' }), 'always');
+  assert.equal(effectiveConfirmMode({ defaultValue: 'auto', workspaceValue: 'always' }), 'always');
+  assert.equal(effectiveConfirmMode(undefined), 'auto');
+});
+
+test('decideConfirm', () => {
+  assert.equal(decideConfirm('never', undefined), 'send');
+  assert.equal(decideConfirm('always', 'always'), 'ask');
+  assert.equal(decideConfirm('auto', undefined), 'first');
+  assert.equal(decideConfirm('auto', 'always'), 'send');
+  assert.equal(decideConfirm('auto', 'ask'), 'ask');
+});
