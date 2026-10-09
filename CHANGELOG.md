@@ -24,6 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Marker line (`<!-- new-conversation -->`) is stripped before sending prompt body.
 - Replaced hard-coded inbox path with workspace-relative path resolution.
 
-## [0.0.1] - 2026-09-26
+## [0.0.1]
 
 - Initial private prototype.

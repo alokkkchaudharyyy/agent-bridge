@@ -2,8 +2,7 @@
 
 Let scripts, schedulers, or another AI agent send prompts into your IDE's AI agent chat by writing a file.
 
-![Agent Bridge demo](media/demo.gif)
-<!-- TODO: record demo.gif -->
+<!-- TODO: record media/demo.gif, then add: ![Agent Bridge demo](media/demo.gif) -->
 
 ## What it does
 
