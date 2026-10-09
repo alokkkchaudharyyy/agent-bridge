@@ -282,6 +282,32 @@ function idFromFileName(name, ext) {
   return null;
 }
 
+function relInboxForPrompt(inboxDir, workspacePath) {
+  if (workspacePath) {
+    const rel = path.relative(workspacePath, inboxDir);
+    if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+      const forwardRel = rel.replace(/\\/g, '/');
+      return forwardRel === '' ? '.' : forwardRel;
+    }
+  }
+  return inboxDir.replace(/\\/g, '/');
+}
+
+function buildFooter({ id, inboxRel }) {
+  return [
+    '---',
+    `Agent Bridge task id: ${id}`,
+    `When you have completely finished this task, as your very last action create the file ${inboxRel}/done/${id}.json containing JSON like:`,
+    `{"id": "${id}", "status": "done", "summary": "<one or two sentences>", "commits": ["<sha>"]}`,
+    'Use status "failed" if you could not complete it, or "blocked" if something outside your control stopped you.',
+    `If you are blocked or need a decision, instead write ${inboxRel}/question/${id}.md explaining what you need, then stop and wait.`
+  ].join('\n');
+}
+
+function withFooter(body, footer) {
+  return footer ? `${body}\n\n${footer}` : body;
+}
+
 module.exports = {
   selectNext,
   skipKey,
@@ -297,6 +323,9 @@ module.exports = {
   makeId,
   isValidId,
   extractId,
-  idFromFileName
+  idFromFileName,
+  relInboxForPrompt,
+  buildFooter,
+  withFooter
 };
 

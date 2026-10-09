@@ -16,7 +16,10 @@ const {
   makeId,
   isValidId,
   extractId,
-  idFromFileName
+  idFromFileName,
+  relInboxForPrompt,
+  buildFooter,
+  withFooter
 } = require('../src/core.js');
 
 test('selectNext', async (t) => {
@@ -471,5 +474,29 @@ test('idFromFileName', () => {
   assert.equal(idFromFileName('20261009-1830-a1b2.json', '.json'), '20261009-1830-a1b2');
   assert.equal(idFromFileName('x.txt', '.json'), null);
   assert.equal(idFromFileName('.json', '.json'), null);
+});
+
+test('relInboxForPrompt', () => {
+  assert.equal(relInboxForPrompt(path.join('/ws', '.agent-inbox'), '/ws'), '.agent-inbox');
+  assert.equal(relInboxForPrompt(path.join('/ws', 'a', 'b'), '/ws'), 'a/b');
+  assert.equal(relInboxForPrompt('/ws', '/ws'), '.');
+  
+  const outside = path.resolve('/other/dir');
+  assert.equal(relInboxForPrompt(outside, '/ws'), outside.replace(/\\/g, '/'));
+  assert.equal(relInboxForPrompt(outside, null), outside.replace(/\\/g, '/'));
+});
+
+test('buildFooter', () => {
+  const footer = buildFooter({ id: 'task-123', inboxRel: '.agent-inbox' });
+  assert.ok(footer.startsWith('---\nAgent Bridge task id: task-123\n'));
+  assert.ok(footer.includes('.agent-inbox/done/task-123.json'));
+  assert.ok(footer.includes('{"id": "task-123"'));
+  assert.ok(footer.includes('.agent-inbox/question/task-123.md'));
+});
+
+test('withFooter', () => {
+  assert.equal(withFooter('body text', 'footer text'), 'body text\n\nfooter text');
+  assert.equal(withFooter('body text', ''), 'body text');
+  assert.equal(withFooter('body text', null), 'body text');
 });
 
