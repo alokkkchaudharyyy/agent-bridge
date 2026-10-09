@@ -12,7 +12,11 @@ const {
   parseLessons,
   formatLesson,
   hasLesson,
-  applyLessons
+  applyLessons,
+  makeId,
+  isValidId,
+  extractId,
+  idFromFileName
 } = require('../src/core.js');
 
 test('selectNext', async (t) => {
@@ -417,5 +421,55 @@ test('applyLessons', async (t) => {
       'My prompt\n\n---\nBefore you start: read .agent-inbox/lessons.md (lessons from past reviews of your work in this repo) and do not repeat those mistakes.'
     );
   });
+});
+
+test('makeId', () => {
+  assert.equal(makeId(new Date(2026, 9, 9, 18, 5), 'a1b2'), '20261009-1805-a1b2');
+  const randomVariant = makeId();
+  assert.match(randomVariant, /^\d{8}-\d{4}-[0-9a-f]{4}$/);
+});
+
+test('isValidId', () => {
+  assert.equal(isValidId('task-42'), true);
+  assert.equal(isValidId('a.b_c'), true);
+  assert.equal(isValidId(''), false);
+  assert.equal(isValidId('-x'), false);
+  assert.equal(isValidId('a b'), false);
+  assert.equal(isValidId('../x'), false);
+  assert.equal(isValidId('a'.repeat(65)), false);
+  assert.equal(isValidId('a'.repeat(64)), true);
+});
+
+test('extractId', async (t) => {
+  await t.test('id first', () => {
+    assert.deepEqual(extractId('<!-- id: abc-123 -->\nbody'), { id: 'abc-123', text: 'body' });
+  });
+  await t.test('id after marker', () => {
+    assert.deepEqual(extractId('<!-- new-conversation -->\n<!-- id: a1 -->\ntext'), { id: 'a1', text: '<!-- new-conversation -->\ntext' });
+  });
+  await t.test('id after blank lines', () => {
+    assert.deepEqual(extractId('\n  \n<!-- id: x -->\ntext'), { id: 'x', text: '\n  \ntext' });
+  });
+  await t.test('no id', () => {
+    assert.deepEqual(extractId('body'), { id: null, text: 'body' });
+  });
+  await t.test('invalid id left untouched', () => {
+    assert.deepEqual(extractId('<!-- id: a b -->\nbody'), { id: null, text: '<!-- id: a b -->\nbody' });
+  });
+  await t.test('id comment AFTER body text is ignored', () => {
+    assert.deepEqual(extractId('body\n<!-- id: x -->'), { id: null, text: 'body\n<!-- id: x -->' });
+  });
+  await t.test('BOM', () => {
+    assert.deepEqual(extractId('\uFEFF<!-- id: x -->\n'), { id: 'x', text: '' });
+  });
+  await t.test('CRLF', () => {
+    assert.deepEqual(extractId('<!-- id: a -->\r\nbody'), { id: 'a', text: 'body' });
+  });
+});
+
+test('idFromFileName', () => {
+  assert.equal(idFromFileName('20261009-1830-a1b2.json', '.json'), '20261009-1830-a1b2');
+  assert.equal(idFromFileName('x.txt', '.json'), null);
+  assert.equal(idFromFileName('.json', '.json'), null);
 });
 

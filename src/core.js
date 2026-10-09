@@ -1,4 +1,5 @@
 const path = require('path');
+const crypto = require('crypto');
 
 function skipKey(entry) {
   return `${entry.name}|${entry.mtimeMs}`;
@@ -223,6 +224,64 @@ function applyLessons(body, opts = {}) {
   return body + '\n\n---\n' + `Before you start: read ${relPath} (lessons from past reviews of your work in this repo) and do not repeat those mistakes.`;
 }
 
+function makeId(date = new Date(), randomHex) {
+  const pad = n => String(n).padStart(2, '0');
+  const YYYY = date.getFullYear();
+  const MM = pad(date.getMonth() + 1);
+  const DD = pad(date.getDate());
+  const HH = pad(date.getHours());
+  const mm = pad(date.getMinutes());
+  let rand = randomHex;
+  if (!rand) {
+    rand = crypto.randomBytes(2).toString('hex');
+  }
+  return `${YYYY}${MM}${DD}-${HH}${mm}-${rand}`;
+}
+
+function isValidId(id) {
+  return typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id);
+}
+
+function extractId(text) {
+  if (typeof text !== 'string') return { id: null, text: '' };
+  const textWithoutBOM = text.startsWith('\uFEFF') ? text.slice(1) : text;
+  
+  const lines = textWithoutBOM.split('\n');
+  let idFound = null;
+  let removeIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineStr = line.endsWith('\r') ? line.slice(0, -1) : line;
+    
+    if (!/^\s*(?:<!--.*-->)?\s*$/.test(lineStr)) {
+      break;
+    }
+    const match = /^\s*<!--\s*id:\s*(\S+?)\s*-->\s*$/.exec(lineStr);
+    if (match && isValidId(match[1])) {
+      idFound = match[1];
+      removeIndex = i;
+      break;
+    }
+  }
+
+  if (idFound !== null) {
+    lines.splice(removeIndex, 1);
+    return { id: idFound, text: lines.join('\n') };
+  }
+
+  return { id: null, text: textWithoutBOM };
+}
+
+function idFromFileName(name, ext) {
+  if (typeof name !== 'string' || typeof ext !== 'string') return null;
+  if (name.endsWith(ext) && name.length > ext.length) {
+    const part = name.slice(0, -ext.length);
+    if (isValidId(part)) return part;
+  }
+  return null;
+}
+
 module.exports = {
   selectNext,
   skipKey,
@@ -234,6 +293,10 @@ module.exports = {
   parseLessons,
   formatLesson,
   hasLesson,
-  applyLessons
+  applyLessons,
+  makeId,
+  isValidId,
+  extractId,
+  idFromFileName
 };
 
