@@ -1,0 +1,4 @@
+node_modules/
+*.vsix
+.agent-inbox/
+.vscode-test/
