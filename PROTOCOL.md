@@ -140,3 +140,27 @@ while (-not (Test-Path "$INBOX/done/$ID.json") -and -not (Test-Path "$INBOX/ques
 if (Test-Path "$INBOX/done/$ID.json") { Get-Content "$INBOX/done/$ID.json" }
 if (Test-Path "$INBOX/question/$ID.md") { Get-Content "$INBOX/question/$ID.md" }
 ```
+
+## Lessons file
+
+`AGENT_LESSONS.md` (setting `agentBridge.lessonsFile`) holds durable rules learned from reviews, one per line:
+
+```markdown
+- YYYY-MM-DD · area: mistake → rule
+```
+
+How the bridge uses it (`agentBridge.lessonsMode`):
+
+| Mode | Effect on every sent prompt |
+| --- | --- |
+| `reference` (default) | Adds one line asking the agent to read the lessons file first. |
+| `inline` | Pastes the newest lessons into the prompt (up to ~4000 characters). |
+| `off` | Nothing. |
+
+Nothing is added while the file has no `- ` lines. The command **Agent Bridge: Add lesson** appends an entry interactively and skips duplicates.
+
+Rules for whoever writes lessons (usually the reviewing agent):
+
+- One line per real mistake that could happen again, with a concrete rule. No lessons for one-off typos.
+- No duplicates. Keep the file under ~50 lines by merging or removing stale entries.
+- The model is not retrained. It is reminded of these rules on every prompt.
