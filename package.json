@@ -71,6 +71,11 @@
         "command": "agentBridge.addLesson",
         "title": "Add lesson",
         "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.resetAutoSend",
+        "title": "Reset auto-send choice",
+        "category": "Agent Bridge"
       }
     ],
     "configuration": {
@@ -88,9 +93,19 @@
           "markdownDescription": "How often to check the inbox folder for new prompt files (in milliseconds). Minimum is 1000."
         },
         "agentBridge.confirmBeforeSend": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Ask before sending each prompt. **Keep this on** unless you trust everything that can write to the inbox."
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Ask once per project (\"Always for this project\" or \"Ask each time\") and remember the answer",
+            "Ask before every prompt",
+            "Never ask (only honored from user settings, not workspace settings)"
+          ],
+          "markdownDescription": "When to ask before sending an inbox prompt. `auto` asks once per project and remembers the answer (reset with **Agent Bridge: Reset auto-send choice**). `never` is only honored from user settings, so a cloned repo cannot turn confirmation off. Old values `true`/`false` still work (as `always`/`never`)."
         },
         "agentBridge.newConversationMarker": {
           "type": "string",

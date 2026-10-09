@@ -72,7 +72,7 @@ function getSettings() {
   return {
     inboxPath: cfg.get('inboxPath', ''),
     pollIntervalMs: Math.max(1000, cfg.get('pollIntervalMs', 4000)),
-    confirmBeforeSend: cfg.get('confirmBeforeSend', true),
+    confirmMode: core.effectiveConfirmMode(cfg.inspect('confirmBeforeSend')),
     newConversationMarker: cfg.get('newConversationMarker', '<!-- new-conversation -->'),
     lessonsFile: cfg.get('lessonsFile', 'AGENT_LESSONS.md'),
     lessonsMode: cfg.get('lessonsMode', 'reference'),
@@ -427,12 +427,46 @@ async function handle(entry) {
     return;
   }
 
-  if (!settings.confirmBeforeSend) {
+  const savedChoice = extensionContext ? extensionContext.workspaceState.get('agentBridge.autoSend') : undefined;
+  const decision = core.decideConfirm(settings.confirmMode, savedChoice);
+
+  if (decision === 'send') {
     await sendFile(entry, parsed, headerId);
     return;
   }
 
   const detail = core.preview(parsed.body) + (parsed.newConversation ? '\n\n(starts a new conversation)' : '');
+
+  if (decision === 'first') {
+    const first = await vscode.window.showWarningMessage(
+      'Agent Bridge: auto-send prompts from this project\'s inbox to the agent?',
+      {
+        modal: true,
+        detail: `First prompt: "${entry.name}"\n\n${detail}\n\nYour answer is saved for this project only. Change it any time with "Agent Bridge: Reset auto-send choice".`
+      },
+      'Always for this project',
+      'Ask each time',
+      'View prompt'
+    );
+    if (first === 'Always for this project') {
+      await extensionContext.workspaceState.update('agentBridge.autoSend', 'always');
+      log('auto-send turned on for this project');
+      await sendFile(entry, parsed, headerId);
+      return;
+    }
+    if (first === 'View prompt') {
+      await viewThenAsk(entry, filePath, settings);
+      return;
+    }
+    if (first !== 'Ask each time') {
+      skip.add(core.skipKey(entry));
+      log(`cancelled: ${entry.name} (will ask again if the file changes)`);
+      return;
+    }
+    await extensionContext.workspaceState.update('agentBridge.autoSend', 'ask');
+    log('auto-send off for this project: will ask before each prompt');
+  }
+
   const choice = await vscode.window.showWarningMessage(
     `Agent Bridge: send "${entry.name}" to the agent?`,
     { modal: true, detail },
@@ -452,52 +486,56 @@ async function handle(entry) {
     }
     log(`discarded: ${entry.name}`);
   } else if (choice === 'View') {
+    await viewThenAsk(entry, filePath, settings);
+  } else {
+    skip.add(core.skipKey(entry));
+    log(`cancelled: ${entry.name} (will ask again if the file changes)`);
+  }
+}
+
+async function viewThenAsk(entry, filePath, settings) {
+  try {
+    const doc = await vscode.workspace.openTextDocument(filePath);
+    await vscode.window.showTextDocument(doc, { preview: false });
+  } catch (e) {
+    log(`open failed (${entry.name}): ${e.message}`);
+  }
+
+  const viewChoice = await vscode.window.showInformationMessage(
+    `Agent Bridge: send "${entry.name}" now?`,
+    'Send',
+    'Discard'
+  );
+
+  if (viewChoice === 'Send') {
+    let reReadText;
     try {
-      const doc = await vscode.workspace.openTextDocument(filePath);
-      await vscode.window.showTextDocument(doc, { preview: false });
+      reReadText = fs.readFileSync(filePath, 'utf8');
     } catch (e) {
-      log(`open failed (${entry.name}): ${e.message}`);
+      log(`read failed (${entry.name}): ${e.message}`);
+      return;
     }
-
-    const viewChoice = await vscode.window.showInformationMessage(
-      `Agent Bridge: send "${entry.name}" now?`,
-      'Send',
-      'Discard'
-    );
-
-    if (viewChoice === 'Send') {
-      let reReadText;
-      try {
-        reReadText = fs.readFileSync(filePath, 'utf8');
-      } catch (e) {
-        log(`read failed (${entry.name}): ${e.message}`);
-        return;
-      }
-      const { id: headerIdRe, text: cleanedRe } = core.extractId(reReadText);
-      const reParsed = core.parsePrompt(cleanedRe, settings.newConversationMarker);
-      if (reParsed.isEmpty) {
-        const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
-        try {
-          fs.renameSync(filePath, dest);
-        } catch (_) {
-          /* ignore rename errors */
-        }
-        log(`empty prompt discarded: ${entry.name}`);
-        return;
-      }
-      await sendFile(entry, reParsed, headerIdRe);
-    } else if (viewChoice === 'Discard') {
+    const { id: headerIdRe, text: cleanedRe } = core.extractId(reReadText);
+    const reParsed = core.parsePrompt(cleanedRe, settings.newConversationMarker);
+    if (reParsed.isEmpty) {
       const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
       try {
         fs.renameSync(filePath, dest);
       } catch (_) {
         /* ignore rename errors */
       }
-      log(`discarded: ${entry.name}`);
-    } else {
-      skip.add(core.skipKey(entry));
-      log(`cancelled: ${entry.name} (will ask again if the file changes)`);
+      log(`empty prompt discarded: ${entry.name}`);
+      return;
     }
+    await sendFile(entry, reParsed, headerIdRe);
+  } else if (viewChoice === 'Discard') {
+    const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
+    try {
+      fs.renameSync(filePath, dest);
+    } catch (_) {
+      /* ignore rename errors */
+    }
+    log(`discarded: ${entry.name}`);
   } else {
     skip.add(core.skipKey(entry));
     log(`cancelled: ${entry.name} (will ask again if the file changes)`);
@@ -645,6 +683,14 @@ function activate(context) {
       log(paused ? 'paused' : 'resumed');
       setStatus(paused ? 'paused' : 'watching');
       vscode.window.showInformationMessage(`Agent Bridge ${paused ? 'paused' : 'resumed'}.`);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.resetAutoSend', async () => {
+      await context.workspaceState.update('agentBridge.autoSend', undefined);
+      log('auto-send choice reset');
+      vscode.window.showInformationMessage('Agent Bridge: auto-send choice reset. You will be asked again on the next prompt.');
     })
   );
 
