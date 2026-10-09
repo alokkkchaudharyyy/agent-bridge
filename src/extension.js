@@ -150,7 +150,80 @@ async function handle(entry) {
     return;
   }
 
-  await sendFile(entry, parsed);
+  if (!settings.confirmBeforeSend) {
+    await sendFile(entry, parsed);
+    return;
+  }
+
+  const detail = core.preview(parsed.body) + (parsed.newConversation ? '\n\n(starts a new conversation)' : '');
+  const choice = await vscode.window.showWarningMessage(
+    `Agent Bridge: send "${entry.name}" to the agent?`,
+    { modal: true, detail },
+    'Send',
+    'Discard',
+    'View'
+  );
+
+  if (choice === 'Send') {
+    await sendFile(entry, parsed);
+  } else if (choice === 'Discard') {
+    const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
+    try {
+      fs.renameSync(filePath, dest);
+    } catch (_) {
+      /* ignore rename errors */
+    }
+    log(`discarded: ${entry.name}`);
+  } else if (choice === 'View') {
+    try {
+      const doc = await vscode.workspace.openTextDocument(filePath);
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (e) {
+      log(`open failed (${entry.name}): ${e.message}`);
+    }
+
+    const viewChoice = await vscode.window.showInformationMessage(
+      `Agent Bridge: send "${entry.name}" now?`,
+      'Send',
+      'Discard'
+    );
+
+    if (viewChoice === 'Send') {
+      let reReadText;
+      try {
+        reReadText = fs.readFileSync(filePath, 'utf8');
+      } catch (e) {
+        log(`read failed (${entry.name}): ${e.message}`);
+        return;
+      }
+      const reParsed = core.parsePrompt(reReadText, settings.newConversationMarker);
+      if (reParsed.isEmpty) {
+        const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
+        try {
+          fs.renameSync(filePath, dest);
+        } catch (_) {
+          /* ignore rename errors */
+        }
+        log(`empty prompt discarded: ${entry.name}`);
+        return;
+      }
+      await sendFile(entry, reParsed);
+    } else if (viewChoice === 'Discard') {
+      const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'discarded'));
+      try {
+        fs.renameSync(filePath, dest);
+      } catch (_) {
+        /* ignore rename errors */
+      }
+      log(`discarded: ${entry.name}`);
+    } else {
+      skip.add(core.skipKey(entry));
+      log(`cancelled: ${entry.name} (will ask again if the file changes)`);
+    }
+  } else {
+    skip.add(core.skipKey(entry));
+    log(`cancelled: ${entry.name} (will ask again if the file changes)`);
+  }
 }
 
 async function poll() {
