@@ -110,6 +110,13 @@ test('extension flow: send, done, question, stuck, empty prompt', { timeout: 300
     assert.match(readLog(), /id=task-42/);
     assert.doesNotMatch(readLog(), /\+lessons/);
 
+    // 1b. Lessons are referenced by absolute path (multi-root safe).
+    fs.writeFileSync(path.join(ws, 'AGENT_LESSONS.md'), '- 2026-10-09 · x: mistake → rule\n');
+    put('001b.prompt.md', 'Second task.');
+    await waitFor(() => sends().length === 2, 'send with lessons');
+    assert.ok(sends()[1][1].includes(`read ${path.join(ws, 'AGENT_LESSONS.md')}`), 'absolute lessons path');
+    fs.rmSync(path.join(ws, 'AGENT_LESSONS.md'));
+
     // 2. Done file -> notification, status, pending cleared, hook ran.
     put('done/task-42.json', JSON.stringify({ id: 'task-42', status: 'done', summary: 'Built it.', commits: ['abc123'] }));
     await waitFor(() => hasMsg('info', 'task-42 done. Built it.'), 'done notification');

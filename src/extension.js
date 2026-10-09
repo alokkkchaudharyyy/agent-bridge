@@ -149,8 +149,9 @@ async function deliver(parsed, label, requestedId) {
     : undefined;
 
   let lessonsContent = '';
+  let lessonsPath = null;
   if (settings.lessonsFile) {
-    const lessonsPath = path.isAbsolute(settings.lessonsFile)
+    lessonsPath = path.isAbsolute(settings.lessonsFile)
       ? settings.lessonsFile
       : (firstWs ? path.join(firstWs, settings.lessonsFile) : null);
     if (lessonsPath) {
@@ -166,7 +167,7 @@ async function deliver(parsed, label, requestedId) {
 
   let body = core.applyLessons(parsed.body, {
     mode: settings.lessonsMode,
-    relPath: settings.lessonsFile,
+    relPath: lessonsPath || settings.lessonsFile,
     content: lessonsContent
   });
   const lessonsAdded = body !== parsed.body;
