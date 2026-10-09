@@ -15,6 +15,8 @@ let noTargetWarned = false;
 let gitignoreOffered = false;
 let extensionContext = null;
 let pending = {};
+let seen = new Set();
+let scanning = false;
 
 function savePending() {
   if (extensionContext) {
@@ -235,6 +237,98 @@ async function sendFile(entry, parsed, headerId) {
   await deliver(parsed, entry.name, headerId);
 }
 
+function listOutbox(sub, ext) {
+  const dir = path.join(inboxDir, sub);
+  let dirEntries;
+  try {
+    dirEntries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (_) {
+    return [];
+  }
+  const files = [];
+  for (const de of dirEntries) {
+    if (de.isFile()) {
+      const id = core.idFromFileName(de.name, ext);
+      if (id !== null) {
+        try {
+          const mtimeMs = fs.statSync(path.join(dir, de.name)).mtimeMs;
+          files.push({ id, name: de.name, file: path.join(dir, de.name), mtimeMs });
+        } catch (_) {}
+      }
+    }
+  }
+  return files;
+}
+
+function baselineOutbox() {
+  const doneFiles = listOutbox('done', '.json');
+  const questionFiles = listOutbox('question', '.md');
+  for (const item of [...doneFiles, ...questionFiles]) {
+    const sub = item.name.endsWith('.json') ? 'done' : 'question';
+    seen.add(`${sub}/${item.name}|${item.mtimeMs}`);
+    if (pending[item.id]) {
+      delete pending[item.id];
+    }
+  }
+  savePending();
+}
+
+function handleDone(item) {
+  let text;
+  try { text = fs.readFileSync(item.file, 'utf8'); } catch(e) { log(`done file read failed: ${e.message}`); return; }
+  const info = core.parseDoneFile(text, item.id);
+  delete pending[item.id];
+  savePending();
+  log(`done id=${item.id} status=${info.status} commits=${info.commits.length}${info.summary ? ` summary="${info.summary}"` : ''}${info.error ? ` (${info.error})` : ''}`);
+  
+  if (info.status === 'done') {
+    setStatus('event', `$(pass) Agent Bridge: ${item.id} done`, false);
+    vscode.window.showInformationMessage(`Agent Bridge: ${item.id} done. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
+      if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
+      else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
+    });
+  } else {
+    setStatus('event', `$(warning) Agent Bridge: ${item.id} ${info.status}`, true);
+    vscode.window.showWarningMessage(`Agent Bridge: ${item.id} ${info.status}. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
+      if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
+      else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
+    });
+  }
+}
+
+function handleQuestion(item) {
+  let text;
+  try { text = fs.readFileSync(item.file, 'utf8'); } catch(e) { log(`question file read failed: ${e.message}`); return; }
+  delete pending[item.id];
+  savePending();
+  log(`question id=${item.id}`);
+  setStatus('event', `$(question) Agent Bridge: ${item.id} needs input`, true);
+  vscode.window.showWarningMessage(`Agent Bridge: ${item.id} needs a decision: ${core.preview(text, 160)}`, 'Open', 'Open log').then(choice => {
+    if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
+    else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
+  });
+}
+
+function scanOutbox() {
+  const doneFiles = listOutbox('done', '.json');
+  const questionFiles = listOutbox('question', '.md');
+  const now = Date.now();
+  for (const item of doneFiles) {
+    const key = `done/${item.name}|${item.mtimeMs}`;
+    if (seen.has(key)) continue;
+    if (item.mtimeMs > now - 1500) continue;
+    seen.add(key);
+    try { handleDone(item); } catch (e) { log(`handleDone error: ${e.message}`); }
+  }
+  for (const item of questionFiles) {
+    const key = `question/${item.name}|${item.mtimeMs}`;
+    if (seen.has(key)) continue;
+    if (item.mtimeMs > now - 1500) continue;
+    seen.add(key);
+    try { handleQuestion(item); } catch (e) { log(`handleQuestion error: ${e.message}`); }
+  }
+}
+
 async function handle(entry) {
   const filePath = path.join(inboxDir, entry.name);
   let text;
@@ -338,7 +432,16 @@ async function handle(entry) {
 }
 
 async function poll() {
-  if (paused || busy || !inboxDir) return;
+  if (!inboxDir) return;
+  if (!scanning) {
+    scanning = true;
+    try {
+      scanOutbox();
+    } finally {
+      scanning = false;
+    }
+  }
+  if (paused || busy) return;
   busy = true;
   try {
     const dirEntries = fs.readdirSync(inboxDir, { withFileTypes: true });
@@ -406,6 +509,8 @@ function start() {
   } catch (_) {
     /* ignore directory creation errors */
   }
+
+  baselineOutbox();
 
   if (statusItem) {
     statusItem.tooltip = `Inbox: ${inboxDir}\nClick to open the log`;
