@@ -1,7 +1,42 @@
 {
   "name": "agent-bridge",
+  "displayName": "Agent Bridge",
+  "description": "Send prompts into your IDE's AI agent chat by dropping a file in a folder. Works with Antigravity and VS Code chat.",
   "version": "0.2.0",
-  "private": true,
+  "publisher": "alokkkchaudharyyy",
+  "license": "MIT",
+  "author": "alokkkchaudharyyy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alokkkchaudharyyy/agent-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alokkkchaudharyyy/agent-bridge/issues"
+  },
+  "homepage": "https://github.com/alokkkchaudharyyy/agent-bridge#readme",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "antigravity",
+    "agent",
+    "ai",
+    "chat",
+    "prompt",
+    "automation",
+    "inbox",
+    "gemini",
+    "claude"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
   "scripts": {
     "test": "node --test test/"
   }
