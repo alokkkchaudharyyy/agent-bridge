@@ -78,7 +78,33 @@ function sleep(ms) {
 }
 
 async function deliver(parsed, label) {
-  const body = parsed.body;
+  const settings = getSettings();
+  const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
+    ? vscode.workspace.workspaceFolders[0].uri.fsPath
+    : undefined;
+
+  let lessonsContent = '';
+  if (settings.lessonsFile) {
+    const lessonsPath = path.isAbsolute(settings.lessonsFile)
+      ? settings.lessonsFile
+      : (firstWs ? path.join(firstWs, settings.lessonsFile) : null);
+    if (lessonsPath) {
+      try {
+        if (fs.existsSync(lessonsPath)) {
+          lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
+        }
+      } catch (_) {
+        lessonsContent = '';
+      }
+    }
+  }
+
+  const body = core.applyLessons(parsed.body, {
+    mode: settings.lessonsMode,
+    relPath: settings.lessonsFile,
+    content: lessonsContent
+  });
+
   try {
     const cmdsList = await vscode.commands.getCommands(true);
     const cmds = new Set(cmdsList);
@@ -111,7 +137,8 @@ async function deliver(parsed, label) {
     }
 
     const newConvSuffix = parsed.newConversation ? ' (new conversation)' : '';
-    log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}`);
+    const lessonsSuffix = body !== parsed.body ? ' (+lessons)' : '';
+    log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}${lessonsSuffix}`);
     setStatus('sent');
   } catch (e) {
     log(`send failed (${label}): ${e.message}`);
