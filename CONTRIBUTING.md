@@ -36,3 +36,7 @@ This creates `agent-bridge-<version>.vsix` in the project root. To test it:
 - Add unit tests in `test/` for any new logic added to `src/core.js`.
 - Keep pull requests small and focused.
 - When reporting bugs, include relevant log lines from `.agent-inbox/bridge.log`.
+
+## Releasing
+
+Maintainers: see [docs/PUBLISHING.md](docs/PUBLISHING.md). Pushing a `v*` tag publishes automatically.
