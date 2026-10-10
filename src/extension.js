@@ -80,7 +80,7 @@ function getSettings() {
     lessonsFile: cfg.get('lessonsFile', 'AGENT_LESSONS.md'),
     lessonsMode: cfg.get('lessonsMode', 'reference'),
     completionSignal: cfg.get('completionSignal', true),
-    stuckAfterMinutes: cfg.get('stuckAfterMinutes', 30),
+    stuckAfterMinutes: cfg.get('stuckAfterMinutes', 20),
     waitForDone: cfg.get('waitForDone', true),
     detectQuotaErrors: cfg.get('detectQuotaErrors', 'auto'),
     conversationsPath: cfg.get('conversationsPath', '')
@@ -449,16 +449,37 @@ function checkQuota() {
   }
 }
 
+// Last few lines of bridge.log, reading only the end of the file.
+function logTail(n) {
+  try {
+    const file = path.join(inboxDir, 'bridge.log');
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, 'r');
+    try {
+      const len = Math.min(size, 4096);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      return core.lastLogLines(buf.toString('utf8'), n);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (_) {
+    return [];
+  }
+}
+
 function checkStuck() {
   const settings = getSettings();
   const ids = core.findStuck(pending, Date.now(), settings.stuckAfterMinutes);
   for (const id of ids) {
     pending[id].stuckNotified = true;
     savePending();
+    const tail = logTail(3);
     log(`may be stuck: id=${id} (no done/question after ${settings.stuckAfterMinutes} min)`);
     setStatus('event', `$(clock) Agent Bridge: ${id} may be stuck`, true);
     vscode.window.showWarningMessage(
-      `Agent Bridge: the agent may be stuck on ${id} (no reply after ${settings.stuckAfterMinutes} min).`,
+      `Agent Bridge: the agent may be stuck on ${id} (no reply after ${settings.stuckAfterMinutes} min).`
+        + (tail.length ? ` Last log: ${tail.join(' | ')}` : ''),
       'Open log', 'Forget'
     ).then(choice => {
       if (choice === 'Open log') {

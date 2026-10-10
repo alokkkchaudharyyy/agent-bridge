@@ -154,9 +154,9 @@
         },
         "agentBridge.stuckAfterMinutes": {
           "type": "number",
-          "default": 30,
+          "default": 20,
           "minimum": 0,
-          "markdownDescription": "Warn if no done/question file arrives within this many minutes. 0 = never."
+          "markdownDescription": "Warn if no done/question file arrives within this many minutes (the warning shows the last log lines). Also releases the queue hold. 0 = never."
         },
         "agentBridge.onDoneCommand": {
           "type": "string",
