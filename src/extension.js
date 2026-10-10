@@ -18,6 +18,8 @@ let extensionContext = null;
 let pending = {};
 let seen = new Set();
 let scanning = false;
+let forceNext = false;
+let heldFor = null;
 
 function savePending() {
   if (extensionContext) {
@@ -77,7 +79,8 @@ function getSettings() {
     lessonsFile: cfg.get('lessonsFile', 'AGENT_LESSONS.md'),
     lessonsMode: cfg.get('lessonsMode', 'reference'),
     completionSignal: cfg.get('completionSignal', true),
-    stuckAfterMinutes: cfg.get('stuckAfterMinutes', 30)
+    stuckAfterMinutes: cfg.get('stuckAfterMinutes', 30),
+    waitForDone: cfg.get('waitForDone', true)
   };
 }
 
@@ -132,6 +135,8 @@ function setStatus(kind, customText, warn) {
         revertTimer = null;
         setStatus(paused ? 'paused' : 'watching');
       }, 10000);
+    } else if (kind === 'waiting') {
+      statusItem.text = customText;
     } else if (kind === 'nofolder') {
       statusItem.text = 'Agent Bridge: no folder';
     }
@@ -574,6 +579,17 @@ async function poll() {
     }
     const entry = core.selectNext(entries, Date.now(), { skip });
     if (entry) {
+      const openId = getSettings().waitForDone && !forceNext ? core.openPendingId(pending) : null;
+      if (openId) {
+        if (heldFor !== openId) {
+          heldFor = openId;
+          log(`queue held: ${entry.name} waits for ${openId} (done/question file, stuck timeout, or "Send next now")`);
+          setStatus('waiting', `$(watch) Agent Bridge: waiting for ${openId}`);
+        }
+        return;
+      }
+      heldFor = null;
+      forceNext = false;
       await handle(entry);
     }
   } catch (e) {
@@ -683,6 +699,15 @@ function activate(context) {
       log(paused ? 'paused' : 'resumed');
       setStatus(paused ? 'paused' : 'watching');
       vscode.window.showInformationMessage(`Agent Bridge ${paused ? 'paused' : 'resumed'}.`);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.sendNextNow', async () => {
+      forceNext = true;
+      log('send next now: queue hold skipped once');
+      vscode.window.showInformationMessage('Agent Bridge: sending the next queued prompt without waiting.');
+      await poll();
     })
   );
 

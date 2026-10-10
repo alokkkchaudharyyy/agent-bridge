@@ -76,6 +76,11 @@
         "command": "agentBridge.resetAutoSend",
         "title": "Reset auto-send choice",
         "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.sendNextNow",
+        "title": "Send next now",
+        "category": "Agent Bridge"
       }
     ],
     "configuration": {
@@ -148,6 +153,11 @@
           "default": "",
           "scope": "machine",
           "markdownDescription": "Optional shell command run when a task finishes, asks a question, or looks stuck. Details arrive as env vars: `AGENT_BRIDGE_EVENT`, `AGENT_BRIDGE_ID`, `AGENT_BRIDGE_STATUS`, `AGENT_BRIDGE_FILE`, `AGENT_BRIDGE_SUMMARY`, `AGENT_BRIDGE_INBOX`. Only read from user settings; disabled in untrusted workspaces."
+        },
+        "agentBridge.waitForDone": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Hold the next queued `*.prompt.md` until the previous task has a `done/` or `question/` file (or hits the stuck timeout). **Agent Bridge: Send next now** skips the wait once. Needs `completionSignal`."
         }
       }
     }
