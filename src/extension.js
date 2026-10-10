@@ -388,7 +388,7 @@ function scanOutbox() {
 }
 
 let quotaSeen = { file: null, mtimeMs: 0 };
-let lastQuotaCheck = 0;
+let lastQuotaRead = 0;
 
 function quotaDetectionOn(settings) {
   if (settings.detectQuotaErrors === 'on') return true;
@@ -404,9 +404,6 @@ function checkQuota() {
   const settings = getSettings();
   if (!quotaDetectionOn(settings)) return;
   const now = Date.now();
-  if (now - lastQuotaCheck < 15000) return;
-  lastQuotaCheck = now;
-
   let id = null;
   for (const key of Object.keys(pending)) {
     if (!id || pending[key].sentAt > pending[id].sentAt) id = key;
@@ -429,6 +426,9 @@ function checkQuota() {
   }
   if (!newest || newest.mtimeMs < sentAt) return;
   if (quotaSeen.file === newest.file && quotaSeen.mtimeMs === newest.mtimeMs) return;
+  // The file changes on every agent step and can be tens of MB: read it at most every 15 s.
+  if (now - lastQuotaRead < 15000) return;
+  lastQuotaRead = now;
   quotaSeen = newest;
 
   let hit;
