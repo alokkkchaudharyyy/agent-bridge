@@ -158,6 +158,26 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Hold the next queued `*.prompt.md` until the previous task has a `done/` or `question/` file (or hits the stuck timeout). **Agent Bridge: Send next now** skips the wait once. Needs `completionSignal`."
+        },
+        "agentBridge.detectQuotaErrors": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "On when running inside Antigravity, off elsewhere",
+            "Always on",
+            "Off"
+          ],
+          "markdownDescription": "Detect when the Antigravity agent stops on a model quota error (e.g. \"Individual quota reached\") and write `question/<id>.md` with `reason: quota` and the reset time. Reads Antigravity's internal conversation files read-only; that format is not a public API and may change."
+        },
+        "agentBridge.conversationsPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where Antigravity keeps its conversation files, for quota detection. Empty = `~/.gemini/antigravity-ide/conversations`."
         }
       }
     }

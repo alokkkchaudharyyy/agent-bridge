@@ -2,6 +2,7 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const child_process = require('child_process');
+const os = require('os');
 const core = require('./core');
 
 let outputChannel;
@@ -80,7 +81,9 @@ function getSettings() {
     lessonsMode: cfg.get('lessonsMode', 'reference'),
     completionSignal: cfg.get('completionSignal', true),
     stuckAfterMinutes: cfg.get('stuckAfterMinutes', 30),
-    waitForDone: cfg.get('waitForDone', true)
+    waitForDone: cfg.get('waitForDone', true),
+    detectQuotaErrors: cfg.get('detectQuotaErrors', 'auto'),
+    conversationsPath: cfg.get('conversationsPath', '')
   };
 }
 
@@ -381,6 +384,68 @@ function scanOutbox() {
   }
 }
 
+let quotaSeen = { file: null, mtimeMs: 0 };
+let lastQuotaCheck = 0;
+
+function quotaDetectionOn(settings) {
+  if (settings.detectQuotaErrors === 'on') return true;
+  if (settings.detectQuotaErrors === 'off') return false;
+  const appName = (vscode.env && vscode.env.appName) || '';
+  return /antigravity/i.test(appName);
+}
+
+// Antigravity stores each conversation in an internal SQLite file. When the model stops on a
+// quota error nothing reaches the inbox, so we read the newest file (read-only, raw bytes) for a
+// quota error newer than the last send and turn it into question/<id>.md.
+function checkQuota() {
+  const settings = getSettings();
+  if (!quotaDetectionOn(settings)) return;
+  const now = Date.now();
+  if (now - lastQuotaCheck < 15000) return;
+  lastQuotaCheck = now;
+
+  let id = null;
+  for (const key of Object.keys(pending)) {
+    if (!id || pending[key].sentAt > pending[id].sentAt) id = key;
+  }
+  if (!id) return;
+  const sentAt = pending[id].sentAt;
+
+  const dir = settings.conversationsPath.trim()
+    || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'conversations');
+  let newest = null;
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.db')) continue;
+      const file = path.join(dir, name);
+      const mtimeMs = fs.statSync(file).mtimeMs;
+      if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };
+    }
+  } catch (_) {
+    return;
+  }
+  if (!newest || newest.mtimeMs < sentAt) return;
+  if (quotaSeen.file === newest.file && quotaSeen.mtimeMs === newest.mtimeMs) return;
+  quotaSeen = newest;
+
+  let hit;
+  try {
+    hit = core.findQuotaError(fs.readFileSync(newest.file), sentAt - 30000);
+  } catch (e) {
+    log(`quota check failed: ${e.message}`);
+    return;
+  }
+  if (!hit) return;
+  const questionFile = path.join(inboxDir, 'question', `${id}.md`);
+  if (fs.existsSync(questionFile) || fs.existsSync(path.join(inboxDir, 'done', `${id}.json`))) return;
+  try {
+    fs.writeFileSync(questionFile, core.buildQuotaQuestion(id, hit, now), 'utf8');
+    log(`quota stop detected for ${id}: ${hit.message}`);
+  } catch (e) {
+    log(`failed to write quota question: ${e.message}`);
+  }
+}
+
 function checkStuck() {
   const settings = getSettings();
   const ids = core.findStuck(pending, Date.now(), settings.stuckAfterMinutes);
@@ -554,6 +619,7 @@ async function poll() {
     try {
       scanOutbox();
       checkStuck();
+      checkQuota();
     } finally {
       scanning = false;
     }
