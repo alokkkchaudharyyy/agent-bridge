@@ -361,6 +361,79 @@ function findStuck(pending, nowMs, stuckAfterMinutes) {
   return ids;
 }
 
+// The newest pending task that is still open (no done/question file, not past the stuck timeout).
+// While one exists and waitForDone is on, the next queued prompt is held back.
+function openPendingId(pending) {
+  let best = null;
+  for (const id of Object.keys(pending || {})) {
+    const p = pending[id];
+    if (p && !p.stuckNotified && (!best || p.sentAt > pending[best].sentAt)) {
+      best = id;
+    }
+  }
+  return best;
+}
+
+// Last n non-empty log lines, with the ISO date shortened to HH:MM:SS.
+function lastLogLines(text, n = 3) {
+  if (typeof text !== 'string') return [];
+  return text.split(/\r?\n/)
+    .filter((l) => l.trim() !== '')
+    .slice(-n)
+    .map((l) => l.replace(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})\.\d+Z /, '$1 '));
+}
+
+// "1h5m26s" -> ms. Returns null if nothing matches.
+function parseDuration(text) {
+  const m = /^\s*(?:(\d+)h)?(?:(\d+)m(?!s))?(?:(\d+)s)?/.exec(text || '');
+  if (!m || (!m[1] && !m[2] && !m[3])) return null;
+  return ((+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0)) * 1000;
+}
+
+const QUOTA_MARKER = 'RESOURCE_EXHAUSTED (code 429)';
+
+// Scans raw bytes of an Antigravity conversation file (internal format, may change) for the
+// newest quota error that happened at or after sinceMs. The time comes from the HTTP "Date"
+// header stored next to the error; hits without a Date are ignored.
+// Returns { message, at, resetsAt } (ms timestamps; resetsAt may be null) or null.
+function findQuotaError(buf, sinceMs, maxHits = 50) {
+  if (!Buffer.isBuffer(buf)) return null;
+  const marker = Buffer.from(QUOTA_MARKER, 'latin1');
+  let best = null;
+  let pos = buf.length;
+  for (let i = 0; i < maxHits; i++) {
+    pos = buf.lastIndexOf(marker, pos - 1);
+    if (pos < 0) break;
+    const win = buf.subarray(pos, pos + 4000).toString('latin1');
+    const dateMatch = /"Date":\["([^"]+)"\]/.exec(win);
+    const at = dateMatch ? Date.parse(dateMatch[1]) : NaN;
+    if (Number.isNaN(at) || at < sinceMs) continue;
+    if (best && at <= best.at) continue;
+    const msgMatch = /^RESOURCE_EXHAUSTED \(code 429\): ([\x20-\x7e]{1,300})/.exec(win);
+    const message = msgMatch ? msgMatch[1].trim() : 'Quota reached';
+    const resetMatch = /Resets in (\d+h)?(\d+m)?(\d+s)?/.exec(message);
+    const resetMs = resetMatch ? parseDuration(resetMatch[0].slice('Resets in '.length)) : null;
+    best = { message, at, resetsAt: resetMs === null ? null : at + resetMs };
+  }
+  return best;
+}
+
+// Content of question/<id>.md written when a quota stop is detected.
+function buildQuotaQuestion(id, hit, nowMs) {
+  const resets = hit.resetsAt ? new Date(hit.resetsAt).toISOString() : 'unknown';
+  return [
+    'status: blocked',
+    'reason: quota',
+    `resets: ${resets}`,
+    `detected: ${new Date(nowMs).toISOString()}`,
+    `message: ${hit.message}`,
+    '',
+    `The IDE agent stopped on a model quota error while working on ${id}. It did not finish the task.`,
+    'After the reset time, run "Agent Bridge: Resend last prompt with \'continue\'" in the IDE, or send a new prompt with the same id.',
+    ''
+  ].join('\n');
+}
+
 // confirmBeforeSend: 'auto' (ask once per project), 'always' (ask every time), 'never'.
 // Old boolean values map to 'always' / 'never'.
 function normalizeConfirmMode(value) {
@@ -394,6 +467,11 @@ function decideConfirm(mode, savedChoice) {
 }
 
 module.exports = {
+  openPendingId,
+  lastLogLines,
+  parseDuration,
+  findQuotaError,
+  buildQuotaQuestion,
   normalizeConfirmMode,
   effectiveConfirmMode,
   decideConfirm,
