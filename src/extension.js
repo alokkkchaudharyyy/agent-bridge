@@ -424,7 +424,8 @@ function checkQuota() {
   } catch (_) {
     return;
   }
-  if (!newest || newest.mtimeMs < sentAt) return;
+  // Same 30 s tolerance as the error time: the agent writes this file around the moment we send.
+  if (!newest || newest.mtimeMs < sentAt - 30000) return;
   if (quotaSeen.file === newest.file && quotaSeen.mtimeMs === newest.mtimeMs) return;
   // The file changes on every agent step and can be tens of MB: read it at most every 15 s.
   if (now - lastQuotaRead < 15000) return;
