@@ -2,7 +2,7 @@
   "name": "agent-bridge",
   "displayName": "Agent Bridge",
   "description": "Send prompts into your IDE's AI agent chat by dropping a file in a folder. Works with Antigravity and VS Code chat.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "alokkkchaudharyyy",
   "license": "MIT",
   "author": "alokkkchaudharyyy",

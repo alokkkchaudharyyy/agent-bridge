@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-10
+
+### Added
+- **Queue hold** (`agentBridge.waitForDone`, default on): the next queued `*.prompt.md` waits until the previous task has a `done/` or `question/` file, or passes the stuck timeout. The status bar shows "waiting for <id>". New command **Agent Bridge: Send next now** skips the wait once.
+- **Quota stop detection** for Antigravity (`agentBridge.detectQuotaErrors`, default `auto` = on inside Antigravity): when the agent stops on "Individual quota reached", the bridge writes `question/<id>.md` with `status: blocked`, `reason: quota` and the reset time, so orchestrators don't wait blindly. It reads Antigravity's internal conversation files read-only (format may change). `agentBridge.conversationsPath` overrides their location.
+- Commands **Agent Bridge: Resend last prompt** and **Resend last prompt with 'continue'**: they reuse the task id and archive an old question file, so the task counts as open again.
+
+### Changed
+- Stuck warning: default 20 minutes (was 30), and it shows the last log lines.
+
 ## [0.3.1] - 2026-10-09
 
 ### Fixed
