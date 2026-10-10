@@ -150,7 +150,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function deliver(parsed, label, requestedId) {
+async function deliver(parsed, label, requestedId, opts = {}) {
   const settings = getSettings();
   const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
     ? vscode.workspace.workspaceFolders[0].uri.fsPath
@@ -227,6 +227,9 @@ async function deliver(parsed, label, requestedId) {
       } catch (e) {
         log(`failed to write sent receipt: ${e.message}`);
       }
+    }
+    if (!opts.resend && extensionContext) {
+      extensionContext.workspaceState.update('agentBridge.lastSent', { id, label, body: parsed.body });
     }
     if (settings.completionSignal) {
       pending[id] = { sentAt: Date.now(), label, stuckNotified: false };
@@ -766,6 +769,35 @@ function activate(context) {
       setStatus(paused ? 'paused' : 'watching');
       vscode.window.showInformationMessage(`Agent Bridge ${paused ? 'paused' : 'resumed'}.`);
     })
+  );
+
+  const resendLast = async (withContinue) => {
+    const last = context.workspaceState.get('agentBridge.lastSent');
+    if (!last) {
+      vscode.window.showWarningMessage('Agent Bridge: nothing has been sent from this project yet.');
+      return;
+    }
+    // Reopen the task: move an old question file away so orchestrators see the id as open again.
+    if (inboxDir) {
+      const questionFile = path.join(inboxDir, 'question', `${last.id}.md`);
+      if (fs.existsSync(questionFile)) {
+        try {
+          fs.renameSync(questionFile, path.join(inboxDir, 'archive', core.archiveName(`${last.id}.question.md`, Date.now())));
+        } catch (e) {
+          log(`could not archive question for ${last.id}: ${e.message}`);
+        }
+      }
+    }
+    const body = withContinue
+      ? `Continue where you left off on this task. You were interrupted (for example by a quota or model error). Don't redo steps that are already finished.\n\nOriginal task:\n\n${last.body}`
+      : last.body;
+    log(`resending ${last.id}${withContinue ? ' with continue' : ''}`);
+    await deliver({ body, newConversation: false, isEmpty: false }, `${last.label} (resend)`, last.id, { resend: true });
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.resendLast', () => resendLast(false)),
+    vscode.commands.registerCommand('agentBridge.resendContinue', () => resendLast(true))
   );
 
   context.subscriptions.push(
