@@ -85,9 +85,29 @@ The agent must write `done/<id>.json` with the following shape:
 The agent can write free Markdown to `question/<id>.md`.
 After the orchestrator or human answers, they should send a new prompt (you can reuse the same id).
 
+### Quota stops (Antigravity)
+
+When the Antigravity agent stops on a model quota error ("Individual quota reached"), it writes nothing. With `detectQuotaErrors` on (default `auto`: on inside Antigravity), the bridge spots the error in Antigravity's conversation files and writes the question file itself:
+
+```text
+status: blocked
+reason: quota
+resets: 2026-10-09T22:17:26.000Z
+detected: 2026-10-09T21:12:04.000Z
+message: Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h5m26s
+```
+
+Orchestrators should check the first lines: on `reason: quota`, wait until `resets`, then resume. Either send a new prompt with the same id, or ask the user to run **Agent Bridge: Resend last prompt with 'continue'**. A resend reuses the id and moves the old question file to `archive/`.
+
+This reads Antigravity's internal conversation files (`~/.gemini/antigravity-ide/conversations/*.db`), read-only. That format isn't a public API and may change. If it does, detection silently stops working, and the stuck warning is the fallback.
+
+## Queue hold
+
+With `waitForDone` on (default), the bridge sends the next queued `*.prompt.md` only after the previous task has a `done/` or `question/` file, or has passed the stuck timeout. **Agent Bridge: Send next now** skips the wait once. Orchestrators can queue several prompts and let the bridge pace them.
+
 ## Stuck
 
-If no `done/` or `question/` file arrives within `stuckAfterMinutes` (default 30), the bridge warns the user. No file is written by the bridge.
+If no `done/` or `question/` file arrives within `stuckAfterMinutes` (default 20), the bridge warns the user and shows the last log lines. It also releases the queue hold. No file is written.
 
 ## onDoneCommand env vars
 

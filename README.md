@@ -66,6 +66,10 @@ WAITING (never guess with fixed sleeps)
 AFTER IT FINISHES
 - done/<id>.json looks like {"id","status":"done"|"failed"|"blocked","summary","commits":[...]}.
 - question/<id>.md means the agent needs a decision. Answer it in a new prompt (you may reuse the id).
+  If its first lines say "reason: quota", the agent hit its model quota: wait until the "resets" time,
+  then send the same task again with the same id, starting with "Continue where you left off".
+- You may queue several NNN.prompt.md files at once. Agent Bridge sends the next one only after the
+  previous task has a done/question file.
 - Review the work yourself: git log / git diff for the listed commits, run the tests, check the
   acceptance criteria. Don't trust the summary alone.
 - Then send the next prompt: your feedback (what to fix) and/or the next task.
@@ -105,6 +109,9 @@ flowchart LR
 | `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log`. Clicking the status bar does the same. |
 | `Agent Bridge: Add lesson` | Asks for area, mistake and rule, then appends a line to `AGENT_LESSONS.md`. |
 | `Agent Bridge: Reset auto-send choice` | Forgets this project's "Always / Ask each time" answer, so you're asked again on the next prompt. |
+| `Agent Bridge: Send next now` | Sends the next queued prompt without waiting for the previous task to finish. |
+| `Agent Bridge: Resend last prompt` | Sends the last prompt again, with the same task id. |
+| `Agent Bridge: Resend last prompt with 'continue'` | Same, prefixed with "Continue where you left off…". Use it after a quota or model error. |
 
 ## Settings
 
@@ -115,7 +122,10 @@ flowchart LR
 | `agentBridge.confirmBeforeSend` | `auto` | `auto`: ask once per project, then remember (reset with the command above). `always`: ask before every prompt. `never`: never ask, and only honored from your user settings. |
 | `agentBridge.newConversationMarker` | `<!-- new-conversation -->` | A prompt starting with this opens a new agent chat first. Empty = off. |
 | `agentBridge.completionSignal` | `true` | Ask the agent to write `done/<id>.json` or `question/<id>.md` when it finishes. |
-| `agentBridge.stuckAfterMinutes` | `30` | Warn if nothing comes back within this many minutes. 0 = never. |
+| `agentBridge.stuckAfterMinutes` | `20` | Warn (with the last log lines) if nothing comes back within this many minutes. Also releases the queue hold. 0 = never. |
+| `agentBridge.waitForDone` | `true` | Hold the next queued prompt until the previous task has a done/question file. |
+| `agentBridge.detectQuotaErrors` | `auto` | Detect Antigravity quota stops and write `question/<id>.md` with `reason: quota` and the reset time. `auto` = on inside Antigravity. Reads an internal file format, see [PROTOCOL.md](PROTOCOL.md#quota-stops-antigravity). |
+| `agentBridge.conversationsPath` | `""` | Where Antigravity keeps conversations (for quota detection). Empty = `~/.gemini/antigravity-ide/conversations`. |
 | `agentBridge.lessonsFile` | `AGENT_LESSONS.md` | Where review lessons live (relative to the workspace, or absolute). |
 | `agentBridge.lessonsMode` | `reference` | `reference`: remind the agent to read the file. `inline`: paste the newest lessons. `off`: nothing. |
 | `agentBridge.onDoneCommand` | `""` | Optional shell command run on done / question / stuck. User settings only. See [PROTOCOL.md](PROTOCOL.md#ondonecommand-env-vars). |
@@ -125,7 +135,9 @@ flowchart LR
 - **Nothing arrives in the chat.** Open the log (click the status bar) and read the last lines. Check that the file is named exactly `prompt.md` or ends in `.prompt.md`, sits directly in `.agent-inbox/`, and that the status bar doesn't say *paused*. Files changed in the last ~1.5 s are skipped until writing stops. Still stuck? Run **Developer: Reload Window**.
 - **Two IDE windows on the same folder.** Both windows watch the same inbox and may race for the same file. Keep one window open per folder, or pause Agent Bridge in the other one.
 - **Plain VS Code, Cursor and others.** The Antigravity command doesn't exist there, so Agent Bridge falls back to VS Code's chat (`workbench.action.chat.open`). Some versions only prefill the chat box, so you press Enter. If no chat exists at all, you get one "no supported agent chat found" error, and the prompt stays in `archive/`.
-- **"may be stuck" warning.** The agent didn't write a done or question file in time. Check the chat. It may still be working, or it may have forgotten the last step.
+- **"may be stuck" warning.** The agent didn't write a done or question file in time. The warning shows the last log lines. Check the chat: it may still be working, or it may have forgotten the last step.
+- **Status bar says "waiting for <id>".** The queue is holding the next prompt until that task finishes. Run **Agent Bridge: Send next now** to skip the wait, or turn off `waitForDone`.
+- **Agent stopped on "Individual quota reached".** Agent Bridge writes `question/<id>.md` with the reset time (Antigravity only). After the reset, run **Agent Bridge: Resend last prompt with 'continue'**.
 
 ## Safety
 
