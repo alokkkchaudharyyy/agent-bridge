@@ -466,7 +466,82 @@ function decideConfirm(mode, savedChoice) {
   return 'first';
 }
 
+// Names of files older than `days` (entries: [{ name, mtimeMs }]). days <= 0 keeps everything.
+function expiredFiles(entries, nowMs, days) {
+  const d = Number(days);
+  if (!(d > 0)) return [];
+  const cutoff = nowMs - d * 24 * 60 * 60 * 1000;
+  return (entries || []).filter((e) => e && e.mtimeMs < cutoff).map((e) => e.name);
+}
+
+// The one-time setup prompt for an orchestrating agent (Claude Code, Codex, ...).
+// Paths are inserted as given; the README shows it with {PROJECT_PATH} placeholders.
+function orchestratorPrompt({ projectPath, inboxDir, lessonsPath }) {
+  return [
+    'You are the orchestrator for this project. You plan tasks, hand them to the IDE agent',
+    '(Antigravity / VS Code chat) through the Agent Bridge extension, then review its work.',
+    '',
+    `PROJECT: ${projectPath}`,
+    `INBOX:   ${inboxDir}`,
+    '',
+    'SENDING A TASK',
+    '- Create INBOX if it doesn\'t exist. Agent Bridge starts watching it as soon as it appears.',
+    '- Pick a task id: letters, digits, . _ - (max 64), e.g. task-001, task-002.',
+    '- Write the prompt as Markdown. First lines:',
+    '    <!-- new-conversation -->   (optional: start a fresh agent chat; use it for unrelated tasks)',
+    '    <!-- id: task-001 -->',
+    '  then the task itself: goal, files involved, acceptance criteria, "run the tests", "commit when done".',
+    '- Save it as INBOX/task-001.tmp, then rename it to INBOX/task-001.prompt.md.',
+    '  (Files named *.prompt.md are sent one at a time in name order; prompt.md is sent first.',
+    '  The rename makes sure a half-written file is never sent.)',
+    '- Never write into INBOX/archive/, INBOX/done/ or INBOX/sent/.',
+    '- If you didn\'t set an id, find it in INBOX/sent/ (newest file) or the last "id=" in INBOX/bridge.log.',
+    '',
+    'WAITING (never guess with fixed sleeps)',
+    '- INBOX/sent/<id>.json appears when the prompt has actually been sent. A human may need to click',
+    '  "Send" first.',
+    '- The task is over when INBOX/done/<id>.json or INBOX/question/<id>.md appears. Wait for that:',
+    '',
+    '  bash:',
+    `    ID=task-001; INBOX="${inboxDir}"`,
+    '    until [ -f "$INBOX/done/$ID.json" ] || [ -f "$INBOX/question/$ID.md" ]; do sleep 15; done',
+    '',
+    '  PowerShell:',
+    `    $id = 'task-001'; $inbox = '${inboxDir}'`,
+    '    while (-not (Test-Path "$inbox/done/$id.json") -and -not (Test-Path "$inbox/question/$id.md")) { Start-Sleep 15 }',
+    '',
+    '  If your shell tool has a time limit, run the loop in the background or re-run it until a file appears.',
+    '',
+    'AFTER IT FINISHES',
+    '- done/<id>.json looks like {"id","status":"done"|"failed"|"blocked","summary","commits":[...]}.',
+    '- question/<id>.md means the agent needs a decision. Answer it in a new prompt (you may reuse the id).',
+    '  If its first lines say "reason: quota", the agent hit its model quota: wait until the "resets" time,',
+    '  then send the same task again with the same id, starting with "Continue where you left off".',
+    '- You may queue several NNN.prompt.md files at once. Agent Bridge sends the next one only after the',
+    '  previous task has a done/question file.',
+    '- Review the work yourself: git log / git diff for the listed commits, run the tests, check the',
+    '  acceptance criteria. Don\'t trust the summary alone.',
+    '- Then send the next prompt: your feedback (what to fix) and/or the next task.',
+    '',
+    'LESSONS (so the IDE agent learns from reviews)',
+    '- When you find a real mistake that could happen again, append one line to',
+    `  ${lessonsPath}:`,
+    '    - YYYY-MM-DD · area: mistake → rule',
+    '- One concrete rule per mistake, no duplicates, keep it under ~50 lines. Agent Bridge reminds the',
+    '  IDE agent to read this file on every prompt.',
+    '',
+    'SAFETY',
+    '- Never put secrets (API keys, passwords, tokens) in prompts or in the inbox.',
+    '- Never change Agent Bridge\'s auto-send choice or settings yourself. Whether prompts are sent without',
+    '  asking is the user\'s call.',
+    '- Only send tasks the user asked for.',
+    ''
+  ].join('\n');
+}
+
 module.exports = {
+  expiredFiles,
+  orchestratorPrompt,
   openPendingId,
   lastLogLines,
   parseDuration,
