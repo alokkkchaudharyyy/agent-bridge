@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { expiredFiles, orchestratorPrompt } = require('../src/core.js');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -36,4 +38,24 @@ test('orchestratorPrompt inserts the real paths', () => {
   assert.ok(text.includes('  D:\\Code\\app\\AGENT_LESSONS.md:'), 'lessons path');
   assert.doesNotMatch(text, /\{PROJECT_PATH\}/);
   assert.ok(text.endsWith('\n'));
+});
+
+const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+
+test('README shows the same orchestrator prompt as the copy command', () => {
+  const template = orchestratorPrompt({
+    projectPath: '{PROJECT_PATH}',
+    inboxDir: '{PROJECT_PATH}/.agent-inbox',
+    lessonsPath: '{PROJECT_PATH}/AGENT_LESSONS.md'
+  });
+  assert.ok(readme.includes('````text\n' + template + '````'), 'README prompt is out of date: copy it from core.orchestratorPrompt');
+});
+
+test('README links are absolute (relative links break in the IDE extension page)', () => {
+  const links = [...readme.matchAll(/\]\(([^)]+)\)/g)].map((m) => m[1]);
+  assert.ok(links.length > 0);
+  for (const link of links) {
+    assert.match(link, /^https:\/\//, `relative link in README: ${link}`);
+  }
+  assert.doesNotMatch(readme, /```mermaid/, 'mermaid does not render in the IDE extension page');
 });

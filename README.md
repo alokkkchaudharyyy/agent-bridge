@@ -1,33 +1,49 @@
 # Agent Bridge
 
-Let Claude Code, scripts or any AI agent hand tasks to your Antigravity / VS Code AI chat, and know when they're done.
+**Let Claude Code, scripts or any AI agent hand tasks to your Antigravity / VS Code AI chat, and know when they're done.**
 
 [![Open VSX](https://img.shields.io/open-vsx/v/alokkkchaudharyyy/agent-bridge?label=Open%20VSX)](https://open-vsx.org/extension/alokkkchaudharyyy/agent-bridge)
-[![GitHub release](https://img.shields.io/github/v/release/alokkkchaudharyyy/agent-bridge)](https://github.com/alokkkchaudharyyy/agent-bridge/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/open-vsx/dt/alokkkchaudharyyy/agent-bridge)](https://open-vsx.org/extension/alokkkchaudharyyy/agent-bridge)
+[![CI](https://img.shields.io/github/actions/workflow/status/alokkkchaudharyyy/agent-bridge/ci.yml?branch=main&label=tests)](https://github.com/alokkkchaudharyyy/agent-bridge/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/LICENSE)
 
-<!-- TODO: record media/demo.gif, then add: ![Agent Bridge demo](media/demo.gif) -->
+Use one agent to plan and review (Claude Code, Codex, Gemini CLI...) and let your IDE's agent do the building. Agent Bridge is the hand-off between them: a task file goes into `.agent-inbox/`, it shows up in the IDE chat, and when the agent is finished it leaves a small "done" note so the first agent can review the work and send the next task. No copy-pasting, no checking every few minutes.
 
-You drop a Markdown file into `.agent-inbox/` and Agent Bridge types it into your IDE's agent chat. When the agent finishes, it writes a small "done" file back, so whoever sent the task knows it's finished. Agent Bridge never runs commands itself. It only sends text to the chat.
+## How it works
 
-## Install in 1 minute
+```text
+ Claude Code ──writes──▶ .agent-inbox/task-001.prompt.md
+Agent Bridge ──sends───▶ the IDE agent chat (Antigravity, or VS Code chat)
+   IDE agent ──builds, tests, commits, then writes──▶ .agent-inbox/done/task-001.json
+ Claude Code ──reviews the diff, then writes──▶ the next task
+```
 
-**From Open VSX:** in Antigravity (or VSCodium / Cursor), open the Extensions panel, search **Agent Bridge**, and click Install.
+Agent Bridge never runs commands or edits your code. It only types prompts into the chat and watches a few files.
 
-**From a .vsix file:** download the latest `agent-bridge-x.y.z.vsix` from [Releases](https://github.com/alokkkchaudharyyy/agent-bridge/releases). Then go to Extensions → `⋯` → **Install from VSIX…** and pick the file.
+## Get started
 
-Then reload the window (Command Palette → **Developer: Reload Window**). You should see **Agent Bridge: watching** in the status bar.
+1. **Open your project** in Antigravity (or VS Code with a chat extension).
+2. Click **Agent Bridge** in the status bar → **Copy orchestrator prompt**, and paste it once into Claude Code (or any agent that can read and write files). It already contains this project's paths.
+3. Ask that agent for something. When its first task arrives, Agent Bridge asks once: **Auto-send prompts from this project's inbox?** Pick **Always for this project**, or **Ask each time** to approve every prompt.
 
-## Try it yourself in 30 seconds
+That's it. The task appears in the chat, and the orchestrator waits for the done note.
 
-1. Open your project folder. Click **Add** when Agent Bridge offers to add `.agent-inbox/` to `.gitignore`.
-2. Create `.agent-inbox/prompt.md` containing `Say hello`.
-3. Within a few seconds Agent Bridge asks, once for this project: **Auto-send prompts from this project's inbox?** Click **Always for this project** (or **Ask each time** if you'd rather approve every prompt).
-4. Watch "Say hello" appear in the agent chat. The file moves to `.agent-inbox/archive/`.
+**Just want to see it work?** Create `.agent-inbox/prompt.md` containing `Say hello` and watch it appear in the chat a few seconds later.
 
-## Let Claude Code (or any agent) drive it
+## Features
 
-Paste the prompt below **once** into Claude Code, Codex, Gemini CLI or any agent that can read and write files. Replace `{PROJECT_PATH}` with your project folder first. After that, the agent knows how to hand tasks to your IDE agent and wait for the results.
+- **Task queue.** Drop several `001.prompt.md`, `002.prompt.md`... files. They're sent one at a time, each after the previous task is done.
+- **Knows when a task is done.** Each prompt gets a short footer asking the agent to write `done/<id>.json` (or `question/<id>.md` if it needs a decision). You get a notification, and scripts can wait for the file.
+- **Stuck warning.** No answer after 20 minutes? You get a warning with the last log lines.
+- **Quota stops (Antigravity).** When the agent stops on "Individual quota reached", Agent Bridge writes a question file with the reset time, so the orchestrator waits instead of guessing. After the reset, **Resend last prompt with 'continue'** picks the task up again.
+- **Lessons that stick.** Reviewers add one-line rules to `AGENT_LESSONS.md` ("mistake → rule"), and every prompt reminds the agent to read them.
+- **New conversations on demand.** A prompt starting with `<!-- new-conversation -->` opens a fresh agent chat first.
+- **Stays out of your way.** Nothing is created in projects that don't use it. The inbox, log and archive only appear once something writes to `.agent-inbox/`, and old archive files are cleaned up after 30 days.
+- **Safe by default.** It asks before auto-sending in a project, and a cloned repo can't switch that off for you.
+
+## The orchestrator prompt
+
+**Copy orchestrator prompt** fills in the paths for you. This is the same text with placeholders, if you want to read it first or adapt it:
 
 ````text
 You are the orchestrator for this project. You plan tasks, hand them to the IDE agent
@@ -37,6 +53,7 @@ PROJECT: {PROJECT_PATH}
 INBOX:   {PROJECT_PATH}/.agent-inbox
 
 SENDING A TASK
+- Create INBOX if it doesn't exist. Agent Bridge starts watching it as soon as it appears.
 - Pick a task id: letters, digits, . _ - (max 64), e.g. task-001, task-002.
 - Write the prompt as Markdown. First lines:
     <!-- new-conversation -->   (optional: start a fresh agent chat; use it for unrelated tasks)
@@ -58,8 +75,8 @@ WAITING (never guess with fixed sleeps)
     until [ -f "$INBOX/done/$ID.json" ] || [ -f "$INBOX/question/$ID.md" ]; do sleep 15; done
 
   PowerShell:
-    $id = 'task-001'; $inbox = '{PROJECT_PATH}\.agent-inbox'
-    while (-not (Test-Path "$inbox\done\$id.json") -and -not (Test-Path "$inbox\question\$id.md")) { Start-Sleep 15 }
+    $id = 'task-001'; $inbox = '{PROJECT_PATH}/.agent-inbox'
+    while (-not (Test-Path "$inbox/done/$id.json") -and -not (Test-Path "$inbox/question/$id.md")) { Start-Sleep 15 }
 
   If your shell tool has a time limit, run the loop in the background or re-run it until a file appears.
 
@@ -83,76 +100,77 @@ LESSONS (so the IDE agent learns from reviews)
 
 SAFETY
 - Never put secrets (API keys, passwords, tokens) in prompts or in the inbox.
-- Never change Agent Bridge's auto-send choice or settings yourself. Whether prompts are sent without asking is the user's call.
+- Never change Agent Bridge's auto-send choice or settings yourself. Whether prompts are sent without
+  asking is the user's call.
 - Only send tasks the user asked for.
 ````
 
-The full file format (ids, receipts, done/question files, hook variables) is in [PROTOCOL.md](PROTOCOL.md).
-
-## Example workflow
-
-```mermaid
-flowchart LR
-    A[Claude Code writes<br/>task-001.prompt.md] --> B[Agent Bridge<br/>sends it to the chat]
-    B --> C[IDE agent builds,<br/>tests and commits]
-    C --> D[Agent writes<br/>done/task-001.json]
-    D --> E[Claude reviews:<br/>diff + tests]
-    E -->|feedback or next task| A
-```
+Task ids, receipts, the done file format and hook variables are described in the [protocol](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/PROTOCOL.md).
 
 ## Commands
 
+Click **Agent Bridge** in the status bar for a menu with the useful ones, or run them from the Command Palette.
+
 | Command | What it does |
 | --- | --- |
-| `Agent Bridge: Send current file as prompt` | Sends the open file to the agent chat right away (no confirmation). |
-| `Agent Bridge: Pause/Resume` | Stops or restarts sending from the inbox. Done/question files are still watched. |
-| `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log`. Clicking the status bar does the same. |
-| `Agent Bridge: Add lesson` | Asks for area, mistake and rule, then appends a line to `AGENT_LESSONS.md`. |
-| `Agent Bridge: Reset auto-send choice` | Forgets this project's "Always / Ask each time" answer, so you're asked again on the next prompt. |
-| `Agent Bridge: Send next now` | Sends the next queued prompt without waiting for the previous task to finish. |
+| `Agent Bridge: Copy orchestrator prompt` | Copies the setup prompt for Claude Code & co., with this project's paths filled in. |
+| `Agent Bridge: Show actions` | The status-bar menu: current task, queue, and actions. |
+| `Agent Bridge: Send current file as prompt` | Sends the open file to the agent chat right away. |
+| `Agent Bridge: Pause/Resume` | Stops or restarts sending from the inbox. Done and question files are still watched. |
+| `Agent Bridge: Send next now` | Sends the next queued prompt without waiting for the current task. |
 | `Agent Bridge: Resend last prompt` | Sends the last prompt again, with the same task id. |
-| `Agent Bridge: Resend last prompt with 'continue'` | Same, prefixed with "Continue where you left off…". Use it after a quota or model error. |
+| `Agent Bridge: Resend last prompt with 'continue'` | Same, starting with "Continue where you left off". Use it after a quota or model error. |
+| `Agent Bridge: Add lesson` | Asks for area, mistake and rule, and appends a line to `AGENT_LESSONS.md`. |
+| `Agent Bridge: Open log` | Opens `.agent-inbox/bridge.log`. |
+| `Agent Bridge: Open inbox folder` | Shows `.agent-inbox/` in your file manager. |
+| `Agent Bridge: Reset auto-send choice` | Forgets this project's "Always / Ask each time" answer. |
 
 ## Settings
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. Relative paths start at the first workspace folder. |
-| `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
-| `agentBridge.confirmBeforeSend` | `auto` | `auto`: ask once per project, then remember (reset with the command above). `always`: ask before every prompt. `never`: never ask, and only honored from your user settings. |
+| `agentBridge.confirmBeforeSend` | `auto` | `auto`: ask once per project, then remember. `always`: ask before every prompt. `never`: never ask (only honored from your user settings). |
+| `agentBridge.waitForDone` | `true` | Hold the next queued prompt until the current task has a done or question file. |
+| `agentBridge.stuckAfterMinutes` | `20` | Warn if nothing comes back within this many minutes. Also releases the queue. `0` = never. |
+| `agentBridge.completionSignal` | `true` | Add the footer that asks the agent to write `done/<id>.json` or `question/<id>.md`. |
 | `agentBridge.newConversationMarker` | `<!-- new-conversation -->` | A prompt starting with this opens a new agent chat first. Empty = off. |
-| `agentBridge.completionSignal` | `true` | Ask the agent to write `done/<id>.json` or `question/<id>.md` when it finishes. |
-| `agentBridge.stuckAfterMinutes` | `20` | Warn (with the last log lines) if nothing comes back within this many minutes. Also releases the queue hold. 0 = never. |
-| `agentBridge.waitForDone` | `true` | Hold the next queued prompt until the previous task has a done/question file. |
-| `agentBridge.detectQuotaErrors` | `auto` | Detect Antigravity quota stops and write `question/<id>.md` with `reason: quota` and the reset time. `auto` = on inside Antigravity. Reads an internal file format, see [PROTOCOL.md](PROTOCOL.md#quota-stops-antigravity). |
-| `agentBridge.conversationsPath` | `""` | Where Antigravity keeps conversations (for quota detection). Empty = `~/.gemini/antigravity-ide/conversations`. |
 | `agentBridge.lessonsFile` | `AGENT_LESSONS.md` | Where review lessons live (relative to the workspace, or absolute). |
 | `agentBridge.lessonsMode` | `reference` | `reference`: remind the agent to read the file. `inline`: paste the newest lessons. `off`: nothing. |
-| `agentBridge.onDoneCommand` | `""` | Optional shell command run on done / question / stuck. User settings only. See [PROTOCOL.md](PROTOCOL.md#ondonecommand-env-vars). |
+| `agentBridge.detectQuotaErrors` | `auto` | Spot Antigravity quota stops and write a question file with the reset time. `auto` = on inside Antigravity. |
+| `agentBridge.conversationsPath` | `""` | Where Antigravity keeps conversations (for quota detection). Empty = the default location. |
+| `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. |
+| `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
+| `agentBridge.archiveRetentionDays` | `30` | Delete files in `archive/` and `sent/` older than this. `done/` and `question/` are never deleted. `0` = keep all. |
+| `agentBridge.onDoneCommand` | `""` | Optional shell command run on done, question or stuck. User settings only, see the [protocol](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/PROTOCOL.md#ondonecommand-env-vars). |
 
 ## Troubleshooting
 
-- **Nothing arrives in the chat.** Open the log (click the status bar) and read the last lines. Check that the file is named exactly `prompt.md` or ends in `.prompt.md`, sits directly in `.agent-inbox/`, and that the status bar doesn't say *paused*. Files changed in the last ~1.5 s are skipped until writing stops. Still stuck? Run **Developer: Reload Window**.
-- **Two IDE windows on the same folder.** Both windows watch the same inbox and may race for the same file. Keep one window open per folder, or pause Agent Bridge in the other one.
-- **Plain VS Code, Cursor and others.** The Antigravity command doesn't exist there, so Agent Bridge falls back to VS Code's chat (`workbench.action.chat.open`). Some versions only prefill the chat box, so you press Enter. If no chat exists at all, you get one "no supported agent chat found" error, and the prompt stays in `archive/`.
-- **"may be stuck" warning.** The agent didn't write a done or question file in time. The warning shows the last log lines. Check the chat: it may still be working, or it may have forgotten the last step.
-- **Status bar says "waiting for <id>".** The queue is holding the next prompt until that task finishes. Run **Agent Bridge: Send next now** to skip the wait, or turn off `waitForDone`.
-- **Agent stopped on "Individual quota reached".** Agent Bridge writes `question/<id>.md` with the reset time (Antigravity only). After the reset, run **Agent Bridge: Resend last prompt with 'continue'**.
+- **Nothing arrives in the chat.** Click the status bar → **Open log** and read the last lines. The file must be named `prompt.md` or end in `.prompt.md`, sit directly in `.agent-inbox/`, and the bridge must not be paused. Files changed in the last ~1.5 s are skipped until writing stops.
+- **Status bar says "idle".** There's no `.agent-inbox/` in this project yet. It starts as soon as something creates it.
+- **Status bar says "waiting for task-…".** The queue is holding the next prompt until that task finishes. Use **Send next now** to skip the wait, or turn off `waitForDone`.
+- **"may be stuck" warning.** The agent didn't write a done or question file in time. Check the chat: it may still be working, or it forgot the last step.
+- **Agent stopped on "Individual quota reached".** Wait until the reset time in the notification, then run **Resend last prompt with 'continue'**.
+- **Two windows on the same folder.** Both watch the same inbox. Each prompt is sent only once, but keep one window per folder (or pause the other) to avoid confusion.
+- **Plain VS Code, Cursor and others.** Agent Bridge falls back to VS Code's chat. Some versions only fill in the chat box, so you press Enter.
 
-## Safety
+## Safety & privacy
 
-> Anything that can write to the inbox can talk to your agent. Only choose **Always for this project** (or `confirmBeforeSend: never`) for projects where you trust everything that can write to `.agent-inbox/`. **Don't combine auto-send with an agent that may auto-run terminal commands** in folders others can write to (shared drives, synced folders, CI). Keep the inbox out of git (the `.gitignore` offer does this) and never put secrets in prompts.
->
-> The auto-send answer is stored per project on your machine, never in the repo, and `never` is ignored in workspace settings. So a cloned repo can't switch confirmation off for you.
->
-> `onDoneCommand` is the only thing Agent Bridge runs itself. It is read only from your user settings (never from a workspace), gets task details only through environment variables, and is disabled in untrusted workspaces. Treat `AGENT_BRIDGE_SUMMARY` as untrusted text.
+- Anything that can write to `.agent-inbox/` can talk to your agent. Only choose **Always for this project** where you trust everything that can write there, and don't combine auto-send with an agent that auto-runs terminal commands in shared or synced folders.
+- The auto-send answer is stored on your machine, never in the repo, and `never` is ignored in workspace settings, so a cloned repo can't turn confirmation off.
+- `onDoneCommand` is the only thing Agent Bridge runs. It's read only from your user settings, gets task details only as environment variables, and is off in untrusted workspaces.
+- Agent Bridge makes no network requests and collects no telemetry. Everything stays in your project folder.
+- Keep `.agent-inbox/` out of git (Agent Bridge offers to add it to `.gitignore`) and never put secrets in prompts.
 
 ## Known limits
 
-- Antigravity support relies on the internal command `antigravity.sendPromptToAgentPanel`. It isn't a public API and may change in an update.
-- The done/question signal depends on the agent following the footer instructions. Most do, but not always. That's what the stuck warning is for.
-- Multi-root workspaces use the first folder. The inbox is polled (every 4 s by default), not watched instantly.
+- Antigravity support uses the internal command `antigravity.sendPromptToAgentPanel`, and quota detection reads Antigravity's internal conversation files. Neither is a public API, so an Antigravity update could break them.
+- The done signal depends on the agent following the footer. Most do, not always. That's what the stuck warning is for.
+- Multi-root workspaces use the first folder.
 
-## Contributing & license
+## More
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed, see [LICENSE](LICENSE).
+- [Protocol](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/PROTOCOL.md): file formats for people writing orchestrators and scripts.
+- [Changelog](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/CHANGELOG.md) · [Report an issue](https://github.com/alokkkchaudharyyy/agent-bridge/issues) · [Contributing](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/CONTRIBUTING.md)
+- Offline install: every [GitHub release](https://github.com/alokkkchaudharyyy/agent-bridge/releases) has a `.vsix` file (Extensions → `⋯` → **Install from VSIX…**).
+
+MIT licensed. Made by [@alokkkchaudharyyy](https://github.com/alokkkchaudharyyy).
