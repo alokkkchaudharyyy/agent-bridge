@@ -15,8 +15,10 @@ Agent Bridge allows an orchestrator (a human, a script, or another AI) to send t
 │   └── <id>.json
 ├── question/
 │   └── <id>.md
-└── bridge.log
+└── bridge.log          (rotated to bridge.log.1 past 1 MB)
 ```
+
+The bridge does nothing in a project until `.agent-inbox/` exists. Orchestrators create the folder when they write their first prompt; the bridge then adds the subfolders. Files in `archive/` and `sent/` older than `archiveRetentionDays` (default 30) are deleted when the bridge starts. `done/` and `question/` are never deleted by the bridge.
 
 ## Task ids
 
