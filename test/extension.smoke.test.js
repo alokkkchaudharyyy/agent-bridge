@@ -15,6 +15,9 @@ const handlers = {};
 const msgs = [];
 const status = { text: '', show() {}, dispose() {} };
 const state = new Map();
+const globalState = new Map();
+let clipboard = '';
+let menuPick = '';
 const hookScript = "require('fs').writeFileSync('hook.txt', [process.env.AGENT_BRIDGE_EVENT, process.env.AGENT_BRIDGE_ID, process.env.AGENT_BRIDGE_STATUS].join(' '))";
 const cfg = {
   confirmBeforeSend: 'auto',
@@ -31,6 +34,11 @@ const notify = (kind) => (message) => {
   return Promise.resolve(message.includes('auto-send prompts') ? 'Always for this project' : undefined);
 };
 const fakeVscode = {
+  env: {
+    appName: 'Visual Studio Code',
+    clipboard: { writeText: async (t) => { clipboard = t; } }
+  },
+  Uri: { file: (p) => ({ fsPath: p }) },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: ws } }, { uri: { fsPath: ws2 } }],
     isTrusted: true,
@@ -48,7 +56,8 @@ const fakeVscode = {
     showInformationMessage: notify('info'),
     showWarningMessage: notify('warn'),
     showErrorMessage: notify('error'),
-    showTextDocument: async () => {}
+    showTextDocument: async () => {},
+    showQuickPick: async (items) => items.find((i) => i.label.includes(menuPick))
   },
   commands: {
     getCommands: async () => ['antigravity.sendPromptToAgentPanel', 'antigravity.startNewConversation'],
@@ -90,7 +99,7 @@ const sends = () => calls.filter((c) => c[0] === 'antigravity.sendPromptToAgentP
 const hasMsg = (kind, text) => msgs.some((m) => (!kind || m[0] === kind) && m[1].includes(text));
 const readLog = () => fs.readFileSync(path.join(inbox, 'bridge.log'), 'utf8');
 
-test('extension flow: first-time choice, multi-root paths, send, done, question, stuck, queue hold, quota, resend', { timeout: 30000 }, async () => {
+test('extension flow: lazy inbox, log rotation, first-time choice, multi-root paths, send, done, question, stuck, queue hold, quota, resend', { timeout: 30000 }, async () => {
   const origLoad = Module._load;
   Module._load = function (req, ...rest) {
     return req === 'vscode' ? fakeVscode : origLoad.call(this, req, ...rest);
@@ -100,12 +109,30 @@ test('extension flow: first-time choice, multi-root paths, send, done, question,
     workspaceState: {
       get: (k, d) => (state.has(k) ? state.get(k) : d),
       update: async (k, v) => state.set(k, v)
+    },
+    globalState: {
+      get: (k, d) => (globalState.has(k) ? globalState.get(k) : d),
+      update: async (k, v) => globalState.set(k, v)
     }
   };
   let ext;
   try {
     ext = require('../src/extension');
     ext.activate(ctx);
+
+    // 0. Nothing is created until something makes the inbox; a one-time welcome is shown.
+    await new Promise((r) => setTimeout(r, 1200));
+    assert.ok(!fs.existsSync(inbox), 'inbox not created on activate');
+    assert.match(status.text, /idle/);
+    assert.ok(hasMsg('info', 'Agent Bridge is installed'), 'welcome shown');
+    assert.equal(globalState.get('agentBridge.welcomed'), true);
+
+    // The inbox appears with a big log and an old archived prompt: rotation and cleanup run.
+    fs.mkdirSync(path.join(inbox, 'archive'), { recursive: true });
+    fs.writeFileSync(path.join(inbox, 'bridge.log'), 'x'.repeat(1024 * 1024 + 10));
+    for (const name of ['old.md', 'recent.md']) fs.writeFileSync(path.join(inbox, 'archive', name), 'x');
+    const longAgo = (Date.now() - 40 * 24 * 60 * 60 * 1000) / 1000;
+    fs.utimesSync(path.join(inbox, 'archive', 'old.md'), longAgo, longAgo);
 
     // 1. Send with markers and an id header.
     put('001.prompt.md', '<!-- new-conversation -->\n<!-- id: task-42 -->\nDo the thing.');
@@ -121,6 +148,10 @@ test('extension flow: first-time choice, multi-root paths, send, done, question,
     assert.equal(msgs.filter((m) => m[1].includes('auto-send prompts')).length, 1, 'one-time question asked once');
     assert.equal(state.get('agentBridge.autoSend'), 'always', 'choice saved for the project');
     assert.ok(!fs.existsSync(path.join(ws2, '.agent-inbox')), 'second root untouched');
+    assert.ok(fs.statSync(path.join(inbox, 'bridge.log.1')).size > 1024 * 1024, 'big log rotated');
+    assert.ok(fs.statSync(path.join(inbox, 'bridge.log')).size < 10000, 'fresh log');
+    assert.ok(!fs.existsSync(path.join(inbox, 'archive', 'old.md')), 'old archive file removed');
+    assert.ok(fs.existsSync(path.join(inbox, 'archive', 'recent.md')), 'recent archive file kept');
 
     // 1b. Lessons are referenced by absolute path (multi-root safe).
     fs.writeFileSync(path.join(ws, 'AGENT_LESSONS.md'), '- 2026-10-09 · x: mistake → rule\n');
@@ -205,6 +236,14 @@ test('extension flow: first-time choice, multi-root paths, send, done, question,
     assert.ok(!fs.existsSync(quotaFile), 'old question archived');
     await handlers['agentBridge.resendLast']();
     assert.ok(sends()[sends().length - 1][1].startsWith('Third queued.'), 'plain resend uses the original prompt');
+
+    // 10. Orchestrator prompt with real paths, and the status-bar menu runs the picked action.
+    await handlers['agentBridge.copyOrchestratorPrompt']();
+    assert.ok(clipboard.includes(`INBOX:   ${inbox}`), 'clipboard has the inbox path');
+    assert.ok(clipboard.includes(path.join(ws, 'AGENT_LESSONS.md')), 'clipboard has the lessons path');
+    menuPick = 'Copy orchestrator prompt';
+    await handlers['agentBridge.showMenu']();
+    assert.ok(calls.some((c) => c[0] === 'agentBridge.copyOrchestratorPrompt'), 'menu ran the action');
   } finally {
     if (ext) ext.deactivate();
     for (const d of ctx.subscriptions) {
