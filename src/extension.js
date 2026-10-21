@@ -21,6 +21,21 @@ let seen = new Set();
 let scanning = false;
 let forceNext = false;
 let heldFor = null;
+let inboxReady = false;
+
+const LOG_MAX_BYTES = 1024 * 1024;
+
+function firstFolder() {
+  const folders = vscode.workspace.workspaceFolders;
+  return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
+}
+
+function lessonsPathFor(settings) {
+  if (!settings.lessonsFile) return null;
+  if (path.isAbsolute(settings.lessonsFile)) return settings.lessonsFile;
+  const ws = firstFolder();
+  return ws ? path.join(ws, settings.lessonsFile) : null;
+}
 
 function savePending() {
   if (extensionContext) {
@@ -83,7 +98,8 @@ function getSettings() {
     stuckAfterMinutes: cfg.get('stuckAfterMinutes', 20),
     waitForDone: cfg.get('waitForDone', true),
     detectQuotaErrors: cfg.get('detectQuotaErrors', 'auto'),
-    conversationsPath: cfg.get('conversationsPath', '')
+    conversationsPath: cfg.get('conversationsPath', ''),
+    archiveRetentionDays: cfg.get('archiveRetentionDays', 30)
   };
 }
 
@@ -100,6 +116,11 @@ function log(line) {
   if (outputChannel) {
     outputChannel.appendLine(`${timestamp} ${line}`);
   }
+}
+
+// What the status bar shows when nothing else is going on.
+function restStatus() {
+  setStatus(paused ? 'paused' : (inboxReady ? 'watching' : 'idle'));
 }
 
 function setStatus(kind, customText, warn) {
@@ -121,7 +142,7 @@ function setStatus(kind, customText, warn) {
     }
     revertTimer = setTimeout(() => {
       revertTimer = null;
-      setStatus(paused ? 'paused' : 'watching');
+      restStatus();
     }, 60000);
   } else {
     statusItem.backgroundColor = undefined;
@@ -136,10 +157,12 @@ function setStatus(kind, customText, warn) {
       }
       revertTimer = setTimeout(() => {
         revertTimer = null;
-        setStatus(paused ? 'paused' : 'watching');
+        restStatus();
       }, 10000);
     } else if (kind === 'waiting') {
       statusItem.text = customText;
+    } else if (kind === 'idle') {
+      statusItem.text = '$(radio-tower) Agent Bridge: idle';
     } else if (kind === 'nofolder') {
       statusItem.text = 'Agent Bridge: no folder';
     }
@@ -152,24 +175,17 @@ function sleep(ms) {
 
 async function deliver(parsed, label, requestedId, opts = {}) {
   const settings = getSettings();
-  const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-    ? vscode.workspace.workspaceFolders[0].uri.fsPath
-    : undefined;
+  ensureInbox();
 
   let lessonsContent = '';
-  let lessonsPath = null;
-  if (settings.lessonsFile) {
-    lessonsPath = path.isAbsolute(settings.lessonsFile)
-      ? settings.lessonsFile
-      : (firstWs ? path.join(firstWs, settings.lessonsFile) : null);
-    if (lessonsPath) {
-      try {
-        if (fs.existsSync(lessonsPath)) {
-          lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
-        }
-      } catch (_) {
-        lessonsContent = '';
+  const lessonsPath = lessonsPathFor(settings);
+  if (lessonsPath) {
+    try {
+      if (fs.existsSync(lessonsPath)) {
+        lessonsContent = fs.readFileSync(lessonsPath, 'utf8');
       }
+    } catch (_) {
+      lessonsContent = '';
     }
   }
 
@@ -235,7 +251,8 @@ async function deliver(parsed, label, requestedId, opts = {}) {
       pending[id] = { sentAt: Date.now(), label, stuckNotified: false };
       savePending();
     }
-    
+    rotateLog();
+
     setStatus('sent', '$(check) Agent Bridge: sent ' + id);
   } catch (e) {
     log(`send failed (${label}): ${e.message}`);
@@ -246,7 +263,16 @@ async function deliver(parsed, label, requestedId, opts = {}) {
 async function sendFile(entry, parsed, headerId) {
   const filePath = path.join(inboxDir, entry.name);
   const dest = path.join(inboxDir, 'archive', core.archiveName(entry.name, Date.now(), 'sent'));
-  fs.renameSync(filePath, dest);
+  try {
+    fs.renameSync(filePath, dest);
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      // Another window on the same folder took it first.
+      log(`${entry.name} is gone (sent from another window?), skipped`);
+      return;
+    }
+    throw e;
+  }
   await deliver(parsed, entry.name, headerId);
 }
 
@@ -258,13 +284,9 @@ function runHook(event, id, status, file, summary) {
     log('onDoneCommand skipped: workspace not trusted');
     return;
   }
-  const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-    ? vscode.workspace.workspaceFolders[0].uri.fsPath
-    : undefined;
-  
   const child = child_process.spawn(cmd, {
     shell: true,
-    cwd: firstWs || inboxDir,
+    cwd: firstFolder() || inboxDir,
     windowsHide: true,
     stdio: 'ignore',
     env: {
@@ -639,6 +661,17 @@ async function viewThenAsk(entry, filePath, settings) {
 
 async function poll() {
   if (!inboxDir) return;
+  // The inbox is only set up once something creates it, so unrelated projects stay untouched.
+  if (!fs.existsSync(inboxDir)) {
+    if (inboxReady) {
+      inboxReady = false;
+      log(`inbox removed, waiting for it to appear again: ${inboxDir}`);
+      updateTooltip();
+      restStatus();
+    }
+    return;
+  }
+  if (!inboxReady) initInbox();
   if (!scanning) {
     scanning = true;
     try {
@@ -706,47 +739,109 @@ function start() {
   stop();
 
   const settings = getSettings();
-  const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-    ? vscode.workspace.workspaceFolders[0].uri.fsPath
-    : undefined;
-
-  inboxDir = core.resolveInboxPath(settings.inboxPath, firstWs);
+  inboxDir = core.resolveInboxPath(settings.inboxPath, firstFolder());
+  inboxReady = false;
   if (!inboxDir) {
     setStatus('nofolder');
     if (statusItem) {
-      statusItem.tooltip = 'Agent Bridge: no folder';
+      statusItem.tooltip = 'Agent Bridge: no folder open';
     }
     return;
   }
 
+  if (fs.existsSync(inboxDir)) {
+    initInbox();
+  } else {
+    if (outputChannel) outputChannel.appendLine(`${new Date().toISOString()} waiting for the inbox to appear: ${inboxDir}`);
+    updateTooltip();
+    restStatus();
+  }
+
+  timer = setInterval(poll, settings.pollIntervalMs);
+  poll();
+}
+
+function updateTooltip() {
+  if (!statusItem || !inboxDir) return;
+  statusItem.tooltip = inboxReady
+    ? `Inbox: ${inboxDir}\nClick for actions`
+    : `Waiting for ${inboxDir} to appear (an agent creates it, or run "Copy orchestrator prompt").\nClick for actions`;
+}
+
+// Creates the inbox if needed (for commands that send or set things up).
+function ensureInbox() {
+  if (!inboxDir || inboxReady) return;
   try {
     fs.mkdirSync(inboxDir, { recursive: true });
-    fs.mkdirSync(path.join(inboxDir, 'archive'), { recursive: true });
-    fs.mkdirSync(path.join(inboxDir, 'done'), { recursive: true });
-    fs.mkdirSync(path.join(inboxDir, 'question'), { recursive: true });
-    fs.mkdirSync(path.join(inboxDir, 'sent'), { recursive: true });
   } catch (_) {
-    /* ignore directory creation errors */
+    return;
   }
+  initInbox();
+}
 
+function initInbox() {
+  for (const sub of ['archive', 'done', 'question', 'sent']) {
+    try {
+      fs.mkdirSync(path.join(inboxDir, sub), { recursive: true });
+    } catch (_) {
+      /* ignore directory creation errors */
+    }
+  }
+  inboxReady = true;
+  rotateLog();
+  cleanArchive();
   baselineOutbox();
-
-  if (statusItem) {
-    statusItem.tooltip = `Inbox: ${inboxDir}\nClick to open the log`;
-  }
+  updateTooltip();
   log(`bridge active (inbox: ${inboxDir})`);
-  setStatus(paused ? 'paused' : 'watching');
+  restStatus();
 
-  if (!gitignoreOffered && firstWs && inboxDir) {
+  const firstWs = firstFolder();
+  if (!gitignoreOffered && firstWs) {
     const rel = path.relative(firstWs, inboxDir);
     if (!rel.startsWith('..') && !path.isAbsolute(rel) && rel !== '') {
       gitignoreOffered = true;
       checkGitignore(firstWs, rel.replace(/\\/g, '/'));
     }
   }
+}
 
-  timer = setInterval(poll, settings.pollIntervalMs);
-  poll();
+// Keep bridge.log small: past 1 MB it becomes bridge.log.1 (one old copy is kept).
+function rotateLog() {
+  const file = path.join(inboxDir, 'bridge.log');
+  try {
+    if (fs.statSync(file).size > LOG_MAX_BYTES) {
+      fs.renameSync(file, file + '.1');
+    }
+  } catch (_) {
+    /* no log yet */
+  }
+}
+
+// Old sent prompts and receipts are removed after archiveRetentionDays. done/ and question/
+// belong to the orchestrator and are never touched.
+function cleanArchive() {
+  const days = getSettings().archiveRetentionDays;
+  let removed = 0;
+  for (const sub of ['archive', 'sent']) {
+    const dir = path.join(inboxDir, sub);
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((de) => de.isFile())
+        .map((de) => ({ name: de.name, mtimeMs: fs.statSync(path.join(dir, de.name)).mtimeMs }));
+    } catch (_) {
+      continue;
+    }
+    for (const name of core.expiredFiles(entries, Date.now(), days)) {
+      try {
+        fs.unlinkSync(path.join(dir, name));
+        removed++;
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+  if (removed) log(`removed ${removed} file(s) older than ${days} days from archive/ and sent/`);
 }
 
 function activate(context) {
@@ -758,7 +853,7 @@ function activate(context) {
   context.subscriptions.push(outputChannel);
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusItem.command = 'agentBridge.openLog';
+  statusItem.command = 'agentBridge.showMenu';
   statusItem.show();
   context.subscriptions.push(statusItem);
 
@@ -788,7 +883,7 @@ function activate(context) {
         extensionContext.workspaceState.update('agentBridge.paused', paused);
       }
       log(paused ? 'paused' : 'resumed');
-      setStatus(paused ? 'paused' : 'watching');
+      restStatus();
       vscode.window.showInformationMessage(`Agent Bridge ${paused ? 'paused' : 'resumed'}.`);
     })
   );
@@ -845,6 +940,10 @@ function activate(context) {
         vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
         return;
       }
+      if (!inboxReady) {
+        vscode.window.showInformationMessage('Agent Bridge: no inbox yet, so there is no log. It starts when something creates .agent-inbox/ (or run "Copy orchestrator prompt").');
+        return;
+      }
       const logFile = path.join(inboxDir, 'bridge.log');
       try {
         fs.appendFileSync(logFile, '', 'utf8');
@@ -862,11 +961,7 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('agentBridge.addLesson', async () => {
-      const firstWs = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-        ? vscode.workspace.workspaceFolders[0].uri.fsPath
-        : undefined;
-
-      if (!firstWs) {
+      if (!firstFolder()) {
         vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
         return;
       }
@@ -888,11 +983,11 @@ function activate(context) {
       });
       if (rule === undefined) return;
 
-      const settings = getSettings();
-      const lessonsFile = settings.lessonsFile;
-      const lessonsPath = path.isAbsolute(lessonsFile)
-        ? lessonsFile
-        : path.join(firstWs, lessonsFile);
+      const lessonsPath = lessonsPathFor(getSettings());
+      if (!lessonsPath) {
+        vscode.window.showWarningMessage('Agent Bridge: set agentBridge.lessonsFile first.');
+        return;
+      }
 
       const defaultHeader = '# Agent lessons\n\nMistakes found in code review. Agents: read this before every task and do not repeat them.\nFormat: - YYYY-MM-DD · area: mistake → rule\n\n';
 
@@ -940,6 +1035,44 @@ function activate(context) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('agentBridge.copyOrchestratorPrompt', async () => {
+      const ws = firstFolder();
+      if (!ws || !inboxDir) {
+        vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
+        return;
+      }
+      ensureInbox();
+      const text = core.orchestratorPrompt({
+        projectPath: ws,
+        inboxDir,
+        lessonsPath: lessonsPathFor(getSettings()) || path.join(ws, 'AGENT_LESSONS.md')
+      });
+      await vscode.env.clipboard.writeText(text);
+      log('orchestrator prompt copied to the clipboard');
+      vscode.window.showInformationMessage(
+        'Agent Bridge: orchestrator prompt copied. Paste it once into Claude Code, Codex, Gemini CLI or any agent that can read and write files.'
+      );
+    }),
+
+    vscode.commands.registerCommand('agentBridge.openInbox', async () => {
+      if (!inboxDir) {
+        vscode.window.showWarningMessage('Agent Bridge: open a folder first.');
+        return;
+      }
+      ensureInbox();
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(inboxDir));
+    }),
+
+    vscode.commands.registerCommand('agentBridge.showMenu', async () => {
+      const items = menuItems();
+      const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Agent Bridge' });
+      if (pick && pick.command) {
+        await vscode.commands.executeCommand(pick.command, ...(pick.args || []));
+      }
+    })
+  );
+
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('agentBridge')) {
         stop();
@@ -960,6 +1093,70 @@ function activate(context) {
   });
 
   start();
+  welcome(context);
+}
+
+// One notification after the first install, so people know where to start.
+function welcome(context) {
+  if (!context.globalState || context.globalState.get('agentBridge.welcomed')) return;
+  context.globalState.update('agentBridge.welcomed', true);
+  vscode.window.showInformationMessage(
+    'Agent Bridge is installed. To let Claude Code or another agent send tasks to this chat, copy the orchestrator prompt and paste it into that agent.',
+    'Copy orchestrator prompt',
+    'Show actions'
+  ).then((choice) => {
+    if (choice === 'Copy orchestrator prompt') vscode.commands.executeCommand('agentBridge.copyOrchestratorPrompt');
+    else if (choice === 'Show actions') vscode.commands.executeCommand('agentBridge.showMenu');
+  });
+}
+
+function queuedCount() {
+  try {
+    return fs.readdirSync(inboxDir).filter((n) => n === 'prompt.md' || (n.endsWith('.prompt.md') && n.length > '.prompt.md'.length)).length;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Status-bar menu: a summary line, then the actions that make sense right now.
+function menuItems() {
+  const items = [];
+  const openId = core.openPendingId(pending);
+  const queued = inboxReady ? queuedCount() : 0;
+
+  let summary;
+  if (!inboxDir) summary = 'No folder open';
+  else if (!inboxReady) summary = 'Idle: waiting for .agent-inbox/ to appear';
+  else if (openId) summary = `Working on ${openId} (${Math.round((Date.now() - pending[openId].sentAt) / 60000)} min)`;
+  else summary = 'Watching the inbox, no open task';
+  if (paused) summary = `Paused. ${summary}`;
+  items.push({
+    label: `$(info) ${summary}`,
+    description: queued ? `${queued} queued` : '',
+    command: inboxReady ? 'agentBridge.openLog' : undefined
+  });
+
+  items.push({ label: '$(copy) Copy orchestrator prompt', description: 'paste once into Claude Code, Codex, ...', command: 'agentBridge.copyOrchestratorPrompt' });
+  items.push(paused
+    ? { label: '$(debug-start) Resume', command: 'agentBridge.togglePause' }
+    : { label: '$(debug-pause) Pause', description: 'stop sending from the inbox', command: 'agentBridge.togglePause' });
+  if (queued && openId) {
+    items.push({ label: '$(run) Send next now', description: `don't wait for ${openId}`, command: 'agentBridge.sendNextNow' });
+  }
+  const last = extensionContext && extensionContext.workspaceState.get('agentBridge.lastSent');
+  if (last) {
+    items.push({ label: '$(debug-continue) Resend last prompt with "continue"', description: last.id, command: 'agentBridge.resendContinue' });
+    items.push({ label: '$(refresh) Resend last prompt', description: last.id, command: 'agentBridge.resendLast' });
+  }
+  items.push({ label: '$(go-to-file) Send current file as prompt', command: 'agentBridge.sendCurrentFile' });
+  if (inboxReady) items.push({ label: '$(output) Open log', command: 'agentBridge.openLog' });
+  if (inboxDir) items.push({ label: '$(folder-opened) Open inbox folder', command: 'agentBridge.openInbox' });
+  items.push({ label: '$(lightbulb) Add lesson', description: 'a rule the agent should follow', command: 'agentBridge.addLesson' });
+  if (extensionContext && extensionContext.workspaceState.get('agentBridge.autoSend')) {
+    items.push({ label: '$(discard) Reset auto-send choice', command: 'agentBridge.resetAutoSend' });
+  }
+  items.push({ label: '$(gear) Settings', command: 'workbench.action.openSettings', args: ['@ext:alokkkchaudharyyy.agent-bridge'] });
+  return items;
 }
 
 function deactivate() {

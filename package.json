@@ -53,6 +53,22 @@
   "contributes": {
     "commands": [
       {
+        "command": "agentBridge.copyOrchestratorPrompt",
+        "title": "Copy orchestrator prompt",
+        "category": "Agent Bridge",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "agentBridge.showMenu",
+        "title": "Show actions",
+        "category": "Agent Bridge"
+      },
+      {
+        "command": "agentBridge.openInbox",
+        "title": "Open inbox folder",
+        "category": "Agent Bridge"
+      },
+      {
         "command": "agentBridge.sendCurrentFile",
         "title": "Send current file as prompt",
         "category": "Agent Bridge"
@@ -188,6 +204,12 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Where Antigravity keeps its conversation files, for quota detection. Empty = `~/.gemini/antigravity-ide/conversations`."
+        },
+        "agentBridge.archiveRetentionDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "markdownDescription": "Delete files in `archive/` and `sent/` older than this many days (checked when the bridge starts). `done/` and `question/` are never deleted. 0 = keep everything."
         }
       }
     }
