@@ -1,8 +1,8 @@
 {
   "name": "agent-bridge",
   "displayName": "Agent Bridge",
-  "description": "Send prompts into your IDE's AI agent chat by dropping a file in a folder. Works with Antigravity and VS Code chat.",
-  "version": "0.3.2",
+  "description": "Let Claude Code, scripts or any AI agent hand tasks to your Antigravity / VS Code AI chat, and know when they're done.",
+  "version": "0.4.0",
   "publisher": "alokkkchaudharyyy",
   "license": "MIT",
   "author": "alokkkchaudharyyy",
@@ -31,8 +31,17 @@
     "automation",
     "inbox",
     "gemini",
-    "claude"
+    "claude",
+    "claude code",
+    "codex",
+    "orchestrator",
+    "multi-agent",
+    "queue"
   ],
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],

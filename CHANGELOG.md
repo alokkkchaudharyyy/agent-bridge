@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-21
+
+### Added
+- **Copy orchestrator prompt** command: copies the setup prompt for Claude Code, Codex, Gemini CLI etc. with this project's absolute paths filled in. No more editing `{PROJECT_PATH}` by hand.
+- **Status-bar menu**: clicking *Agent Bridge* shows the current task, the queue, and the actions that make sense right now.
+- **Open inbox folder** command.
+- A one-time welcome notification after install that points to the orchestrator prompt.
+- `agentBridge.archiveRetentionDays` (default 30): old files in `archive/` and `sent/` are cleaned up. `done/` and `question/` are never deleted.
+
+### Changed
+- The inbox is created lazily. Projects that never use the bridge no longer get an `.agent-inbox/` folder or a `.gitignore` question; the status bar shows *idle* until something creates the folder.
+- `bridge.log` is rotated to `bridge.log.1` past 1 MB.
+- README rewritten for the extension page inside the IDE (absolute links, no mermaid).
+
+### Fixed
+- With two windows on the same folder, a prompt already sent by the other window is skipped quietly instead of showing an error.
+
 ## [0.3.2] - 2026-10-10
 
 ### Added
