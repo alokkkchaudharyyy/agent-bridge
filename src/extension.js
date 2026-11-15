@@ -107,7 +107,8 @@ function getSettings() {
     conversationMode: cfg.get('conversationMode', 'perTask'),
     maxPromptsPerConversation: cfg.get('maxPromptsPerConversation', 6),
     acceptChanges: cfg.get('acceptChanges', 'onDone'),
-    sendMethod: cfg.get('sendMethod', 'auto')
+    sendMethod: cfg.get('sendMethod', 'auto'),
+    notifications: cfg.get('notifications', 'problems')
   };
 }
 
@@ -398,6 +399,14 @@ function baselineOutbox() {
   savePending();
 }
 
+// Pop-ups for finished tasks pile up during long automated runs, so by default only problems
+// (failed, blocked, question, stuck) get one; successes show in the status bar and the log.
+function notifyFor(problem) {
+  const mode = getSettings().notifications;
+  if (mode === 'off') return false;
+  return problem || mode === 'all';
+}
+
 function handleDone(item) {
   let text;
   try { text = fs.readFileSync(item.file, 'utf8'); } catch(e) { log(`done file read failed: ${e.message}`); return; }
@@ -408,13 +417,13 @@ function handleDone(item) {
   
   if (info.status === 'done') {
     setStatus('event', `$(pass) Agent Bridge: ${item.id} done`, false);
-    vscode.window.showInformationMessage(`Agent Bridge: ${item.id} done. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
+    if (notifyFor(false)) vscode.window.showInformationMessage(`Agent Bridge: ${item.id} done. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
       if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
       else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
     });
   } else {
     setStatus('event', `$(warning) Agent Bridge: ${item.id} ${info.status}`, true);
-    vscode.window.showWarningMessage(`Agent Bridge: ${item.id} ${info.status}. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
+    if (notifyFor(true)) vscode.window.showWarningMessage(`Agent Bridge: ${item.id} ${info.status}. ${info.summary}`.trim(), 'Open', 'Open log').then(choice => {
       if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
       else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
     });
@@ -431,7 +440,7 @@ function handleQuestion(item) {
   savePending();
   log(`question id=${item.id}`);
   setStatus('event', `$(question) Agent Bridge: ${item.id} needs input`, true);
-  vscode.window.showWarningMessage(`Agent Bridge: ${item.id} needs a decision: ${core.preview(text, 160)}`, 'Open', 'Open log').then(choice => {
+  if (notifyFor(true)) vscode.window.showWarningMessage(`Agent Bridge: ${item.id} needs a decision: ${core.preview(text, 160)}`, 'Open', 'Open log').then(choice => {
     if (choice === 'Open') vscode.workspace.openTextDocument(item.file).then(doc => vscode.window.showTextDocument(doc));
     else if (choice === 'Open log') vscode.commands.executeCommand('agentBridge.openLog');
   });
@@ -570,7 +579,7 @@ function checkStuck() {
     const tail = logTail(3);
     log(`may be stuck: id=${id} (no done/question after ${settings.stuckAfterMinutes} min)`);
     setStatus('event', `$(clock) Agent Bridge: ${id} may be stuck`, true);
-    vscode.window.showWarningMessage(
+    if (notifyFor(true)) vscode.window.showWarningMessage(
       `Agent Bridge: the agent may be stuck on ${id} (no reply after ${settings.stuckAfterMinutes} min).`
         + (tail.length ? ` Last log: ${tail.join(' | ')}` : ''),
       'Open log', 'Forget'

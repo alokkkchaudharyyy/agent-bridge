@@ -246,6 +246,21 @@
           ],
           "markdownDescription": "Antigravity writes agent edits to disk immediately; Accept/Reject is only a review layer that piles up across tasks. With `onDone`, Agent Bridge accepts them when a task finishes, so review the work with git instead. Choose `off` to review in the editor yourself."
         },
+        "agentBridge.notifications": {
+          "type": "string",
+          "enum": [
+            "problems",
+            "all",
+            "off"
+          ],
+          "default": "problems",
+          "enumDescriptions": [
+            "Pop up only when a task failed, is blocked, asks a question, or may be stuck",
+            "Also pop up when a task finishes successfully",
+            "Never pop up; watch the status bar and the log"
+          ],
+          "markdownDescription": "Which task events show a notification. Successful tasks always show in the status bar and the log."
+        },
         "agentBridge.sendMethod": {
           "type": "string",
           "enum": [

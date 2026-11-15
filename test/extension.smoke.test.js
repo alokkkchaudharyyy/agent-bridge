@@ -23,6 +23,7 @@ const hookScript = "require('fs').writeFileSync('hook.txt', [process.env.AGENT_B
 const cfg = {
   confirmBeforeSend: 'auto',
   waitForDone: false, // steps 1-5 run without the queue hold; step 6 turns it on
+  notifications: 'all', // step 12 checks the quieter default
   pollIntervalMs: 1000,
   stuckAfterMinutes: 0.02,
   onDoneCommand: `"${process.execPath}" -e "${hookScript}"`
@@ -279,6 +280,13 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     cfg.sendMethod = 'agentPanel';
     await handlers['agentBridge.resendLast']();
     assert.equal(sends().length, panelSends + 1, 'sendMethod agentPanel forces the old command');
+
+    // 12. Default notifications: a successful task updates the status bar but doesn't pop up.
+    cfg.notifications = 'problems';
+    put('done/g-3.json', JSON.stringify({ id: 'g-3', status: 'done', summary: 'quiet', commits: [] }));
+    await waitFor(() => /done id=g-3 status=done/.test(readLog()), 'g-3 done seen');
+    assert.match(status.text, /g-3 done/);
+    assert.ok(!hasMsg(null, 'g-3 done. quiet'), 'no pop-up for a success');
   } finally {
     if (ext) ext.deactivate();
     for (const d of ctx.subscriptions) {
