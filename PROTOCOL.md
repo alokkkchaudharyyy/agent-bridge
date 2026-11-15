@@ -29,7 +29,7 @@ Rules:
 - Letters, digits, `.`, `_`, `-`
 - Max 64 characters
 - Must start with a letter or digit
-- Can be placed before or after the `<!-- new-conversation -->` marker
+- Can be placed before or after the `<!-- new-conversation -->` / `<!-- same-conversation -->` marker
 
 If you do not provide an id, the bridge generates one like `20261009-1830-a1b2`.
 **Recommendation**: Orchestrators should always set their own id to track the task reliably.
@@ -101,7 +101,25 @@ message: Individual quota reached. Please upgrade your subscription to increase 
 
 Orchestrators should check the first lines: on `reason: quota`, wait until `resets`, then resume. Either send a new prompt with the same id, or ask the user to run **Agent Bridge: Resend last prompt with 'continue'**. A resend reuses the id and moves the old question file to `archive/`.
 
-This reads Antigravity's internal conversation files (`~/.gemini/antigravity-ide/conversations/*.db`), read-only. That format isn't a public API and may change. If it does, detection silently stops working, and the stuck warning is the fallback.
+This reads Antigravity's internal conversation files (`~/.gemini/antigravity/conversations/*.db` and their `-wal` files; older builds used `~/.gemini/antigravity-ide/conversations`), read-only. That format isn't a public API and may change. If it does, detection silently stops working, and the stuck warning is the fallback.
+
+## Conversations
+
+Antigravity can't compact a long chat, so the bridge decides which chat a prompt goes to (`conversationMode`, default `perTask`):
+
+| Prompt | Goes to |
+| --- | --- |
+| New task id | A fresh chat |
+| Same id as the previous prompt (a fix, a follow-up, a resend) | The same chat |
+| First line `<!-- new-conversation -->` | A fresh chat |
+| First line `<!-- same-conversation -->` | The same chat |
+| The chat already has `maxPromptsPerConversation` prompts (6) | A fresh chat, unless the prompt says `same-conversation` |
+
+The agent remembers nothing from earlier chats, so every prompt should stand alone: the goal, the relevant files, decisions so far and what "done" means. With `conversationMode: marker`, only the marker (and the prompt limit) starts a fresh chat.
+
+## Agent edits
+
+Antigravity writes the agent's edits to disk as it works. Its Accept/Reject buttons are only a review layer. With `acceptChanges: onDone` (default) the bridge runs **Accept all** when a done file arrives and before each new prompt, so pending reviews don't pile up. Review the result with git.
 
 ## Queue hold
 

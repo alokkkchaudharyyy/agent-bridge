@@ -24,7 +24,7 @@ Agent Bridge never runs commands or edits your code. It only types prompts into 
 
 1. **Open your project** in Antigravity (or VS Code with a chat extension).
 2. Click **Agent Bridge** in the status bar → **Copy orchestrator prompt**, and paste it once into Claude Code (or any agent that can read and write files). It already contains this project's paths.
-3. Ask that agent for something. When its first task arrives, Agent Bridge asks once: **Auto-send prompts from this project's inbox?** Pick **Always for this project**, or **Ask each time** to approve every prompt.
+3. Ask that agent for something. When its first task arrives, Agent Bridge asks once: **Auto-send prompts from this project's inbox?** Pick **Always for all trusted projects** to never see this again, **Always for this project**, or **Ask each time** to approve every prompt.
 
 That's it. The task appears in the chat, and the orchestrator waits for the done note.
 
@@ -37,9 +37,10 @@ That's it. The task appears in the chat, and the orchestrator waits for the done
 - **Stuck warning.** No answer after 20 minutes? You get a warning with the last log lines.
 - **Quota stops (Antigravity).** When the agent stops on "Individual quota reached", Agent Bridge writes a question file with the reset time, so the orchestrator waits instead of guessing. After the reset, **Resend last prompt with 'continue'** picks the task up again.
 - **Lessons that stick.** Reviewers add one-line rules to `AGENT_LESSONS.md` ("mistake → rule"), and every prompt reminds the agent to read them.
-- **New conversations on demand.** A prompt starting with `<!-- new-conversation -->` opens a fresh agent chat first.
+- **A fresh chat for every task.** Antigravity can't compact long chats, so each new task id gets a clean conversation, while fixes for the same task stay in its chat. After 6 prompts in one chat it starts over anyway. Override per prompt with `<!-- new-conversation -->` or `<!-- same-conversation -->`.
+- **No Accept/Reject pile-up.** Antigravity writes the agent's edits to disk right away; Accept/Reject is only a review layer. Agent Bridge clicks **Accept all** when a task ends, and the orchestrator reviews the work with git.
 - **Stays out of your way.** Nothing is created in projects that don't use it. The inbox, log and archive only appear once something writes to `.agent-inbox/`, and old archive files are cleaned up after 30 days.
-- **Safe by default.** It asks before auto-sending in a project, and a cloned repo can't switch that off for you.
+- **Safe by default.** It asks before auto-sending, folders in Restricted Mode always ask, and a cloned repo can't switch that off for you.
 
 ## The orchestrator prompt
 
@@ -140,6 +141,9 @@ Click **Agent Bridge** in the status bar for a menu with the useful ones, or run
 | `agentBridge.waitForDone` | `true` | Hold the next queued prompt until the current task has a done or question file. |
 | `agentBridge.stuckAfterMinutes` | `20` | Warn if nothing comes back within this many minutes. Also releases the queue. `0` = never. |
 | `agentBridge.completionSignal` | `true` | Add the footer that asks the agent to write `done/<id>.json` or `question/<id>.md`. |
+| `agentBridge.conversationMode` | `perTask` | `perTask`: a fresh agent chat for each new task id, follow-ups with the same id stay. `marker`: only when a prompt starts with the new-conversation marker. |
+| `agentBridge.maxPromptsPerConversation` | `6` | Start a fresh chat after this many prompts in one conversation (unless the prompt starts with `<!-- same-conversation -->`). `0` = no limit. |
+| `agentBridge.acceptChanges` | `onDone` | Click Antigravity's **Accept all** when a task ends and before each prompt. `off`: review edits in the editor yourself. |
 | `agentBridge.newConversationMarker` | `<!-- new-conversation -->` | A prompt starting with this opens a new agent chat first. Empty = off. |
 | `agentBridge.lessonsFile` | `AGENT_LESSONS.md` | Where review lessons live (relative to the workspace, or absolute). |
 | `agentBridge.lessonsMode` | `reference` | `reference`: remind the agent to read the file. `inline`: paste the newest lessons. `off`: nothing. |
@@ -159,6 +163,8 @@ Click **Agent Bridge** in the status bar for a menu with the useful ones, or run
 - **"may be stuck" warning.** The agent didn't write a done or question file in time. Check the chat: it may still be working, or it forgot the last step.
 - **Agent stopped on "Individual quota reached".** Wait until the reset time in the notification, then run **Resend last prompt with 'continue'**.
 - **Two windows on the same folder.** Both watch the same inbox. Each prompt is sent only once, but keep one window per folder (or pause the other) to avoid confusion.
+- **The agent stops to ask permission (run a command, open a file).** That's Antigravity's own approval, and Agent Bridge can't answer it. The task waits until you click, and the stuck warning tells you. Antigravity's agent settings control how much it may do without asking.
+- **I typed in the agent chat while a prompt arrived.** The prompt is added to whatever is in the chat box and sent together. Don't keep a half-typed message in the agent chat of a window the bridge is sending to.
 - **Antigravity updated and prompts stopped arriving.** Open Settings → `agentBridge.sendMethod` and try `agentInput` or `agentPanel`, then report it as an issue.
 - **Plain VS Code, Cursor and others.** Agent Bridge falls back to VS Code's chat. Some versions only fill in the chat box, so you press Enter.
 
