@@ -151,6 +151,7 @@ Click **Agent Bridge** in the status bar for a menu with the useful ones, or run
 | `agentBridge.conversationsPath` | `""` | Where Antigravity keeps conversations (for quota detection). Empty = the default location. |
 | `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. |
 | `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
+| `agentBridge.notifications` | `problems` | Pop up only when a task failed, is blocked, asks a question or may be stuck. `all`: also for successes. `off`: status bar and log only. |
 | `agentBridge.sendMethod` | `auto` | How prompts reach the Antigravity agent. Only change it if an Antigravity update breaks sending: `agentInput` (newer builds) or `agentPanel` (older builds). |
 | `agentBridge.archiveRetentionDays` | `30` | Delete files in `archive/` and `sent/` older than this. `done/` and `question/` are never deleted. `0` = keep all. |
 | `agentBridge.onDoneCommand` | `""` | Optional shell command run on done, question or stuck. User settings only, see the [protocol](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/PROTOCOL.md#ondonecommand-env-vars). |
