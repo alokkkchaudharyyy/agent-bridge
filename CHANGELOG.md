@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-11-15
+
+### Fixed
+- Works with the updated Antigravity agent panel: prompts are now typed into the agent input and sent (`antigravity.addContext` + `antigravity.triggerSend`). The old `sendPromptToAgentPanel` command still exists in new builds but can silently do nothing.
+- A prompt that reuses the id of the task still open (a correction or follow-up) is sent right away instead of waiting for itself until the stuck timeout.
+
+### Added
+- `agentBridge.sendMethod` (`auto` / `agentInput` / `agentPanel`): force one sending method if an Antigravity update breaks the other.
+
 ## [0.4.0] - 2026-10-21
 
 ### Added
