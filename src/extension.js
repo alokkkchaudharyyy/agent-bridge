@@ -49,6 +49,10 @@ function checkGitignore(wsFolder, rel) {
   }
 
   const gitignorePath = path.join(wsFolder, '.gitignore');
+  // Only ask in folders that use git; elsewhere the question is noise.
+  if (!fs.existsSync(path.join(wsFolder, '.git')) && !fs.existsSync(gitignorePath)) {
+    return;
+  }
   let content = '';
   try {
     if (fs.existsSync(gitignorePath)) {

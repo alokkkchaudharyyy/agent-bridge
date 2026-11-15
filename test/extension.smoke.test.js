@@ -149,6 +149,7 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     assert.equal(msgs.filter((m) => m[1].includes('auto-send prompts')).length, 1, 'one-time question asked once');
     assert.equal(state.get('agentBridge.autoSend'), 'always', 'choice saved for the project');
     assert.ok(!fs.existsSync(path.join(ws2, '.agent-inbox')), 'second root untouched');
+    assert.ok(!hasMsg(null, '.gitignore'), 'no .gitignore question in a folder without git');
     assert.ok(fs.statSync(path.join(inbox, 'bridge.log.1')).size > 1024 * 1024, 'big log rotated');
     assert.ok(fs.statSync(path.join(inbox, 'bridge.log')).size < 10000, 'fresh log');
     assert.ok(!fs.existsSync(path.join(inbox, 'archive', 'old.md')), 'old archive file removed');
