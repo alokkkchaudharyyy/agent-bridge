@@ -140,6 +140,7 @@ Click **Agent Bridge** in the status bar for a menu with the useful ones, or run
 | `agentBridge.conversationsPath` | `""` | Where Antigravity keeps conversations (for quota detection). Empty = the default location. |
 | `agentBridge.inboxPath` | `""` | Folder to watch. Empty = `<workspace>/.agent-inbox`. |
 | `agentBridge.pollIntervalMs` | `4000` | How often to check the inbox, in ms (minimum 1000). |
+| `agentBridge.sendMethod` | `auto` | How prompts reach the Antigravity agent. Only change it if an Antigravity update breaks sending: `agentInput` (newer builds) or `agentPanel` (older builds). |
 | `agentBridge.archiveRetentionDays` | `30` | Delete files in `archive/` and `sent/` older than this. `done/` and `question/` are never deleted. `0` = keep all. |
 | `agentBridge.onDoneCommand` | `""` | Optional shell command run on done, question or stuck. User settings only, see the [protocol](https://github.com/alokkkchaudharyyy/agent-bridge/blob/main/PROTOCOL.md#ondonecommand-env-vars). |
 
@@ -151,6 +152,7 @@ Click **Agent Bridge** in the status bar for a menu with the useful ones, or run
 - **"may be stuck" warning.** The agent didn't write a done or question file in time. Check the chat: it may still be working, or it forgot the last step.
 - **Agent stopped on "Individual quota reached".** Wait until the reset time in the notification, then run **Resend last prompt with 'continue'**.
 - **Two windows on the same folder.** Both watch the same inbox. Each prompt is sent only once, but keep one window per folder (or pause the other) to avoid confusion.
+- **Antigravity updated and prompts stopped arriving.** Open Settings → `agentBridge.sendMethod` and try `agentInput` or `agentPanel`, then report it as an issue.
 - **Plain VS Code, Cursor and others.** Agent Bridge falls back to VS Code's chat. Some versions only fill in the chat box, so you press Enter.
 
 ## Safety & privacy
