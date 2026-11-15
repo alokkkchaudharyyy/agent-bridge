@@ -100,6 +100,9 @@ function getSettings() {
     detectQuotaErrors: cfg.get('detectQuotaErrors', 'auto'),
     conversationsPath: cfg.get('conversationsPath', ''),
     archiveRetentionDays: cfg.get('archiveRetentionDays', 30),
+    conversationMode: cfg.get('conversationMode', 'perTask'),
+    maxPromptsPerConversation: cfg.get('maxPromptsPerConversation', 6),
+    acceptChanges: cfg.get('acceptChanges', 'onDone'),
     sendMethod: cfg.get('sendMethod', 'auto')
   };
 }
@@ -207,6 +210,15 @@ async function deliver(parsed, label, requestedId, opts = {}) {
     const cmds = new Set(cmdsList);
     let via = null;
 
+    const convState = extensionContext ? extensionContext.workspaceState.get('agentBridge.conversation') || null : null;
+    const conv = core.decideConversation({
+      mode: settings.conversationMode,
+      marker: opts.resend ? 'same' : (parsed.conversation || (parsed.newConversation ? 'new' : null)),
+      id,
+      current: convState,
+      maxPrompts: settings.maxPromptsPerConversation
+    });
+
     // Newer Antigravity builds (agent panel from the bundled "agy" extension) take prompts through
     // addContext + triggerSend; the older sendPromptToAgentPanel command still exists there but
     // can silently do nothing. sendMethod lets users force one path if an update breaks the other.
@@ -215,7 +227,8 @@ async function deliver(parsed, label, requestedId, opts = {}) {
     const usePanel = cmds.has('antigravity.sendPromptToAgentPanel') && settings.sendMethod !== 'agentInput';
 
     if (useInput || usePanel) {
-      if (parsed.newConversation && cmds.has('antigravity.startNewConversation')) {
+      await acceptAgentEdits(cmds, 'before sending');
+      if (conv.newConversation && cmds.has('antigravity.startNewConversation')) {
         await vscode.commands.executeCommand('antigravity.startNewConversation');
         await sleep(1500);
       }
@@ -229,7 +242,7 @@ async function deliver(parsed, label, requestedId, opts = {}) {
         via = 'antigravity';
       }
     } else if (cmds.has('workbench.action.chat.open')) {
-      if (parsed.newConversation && cmds.has('workbench.action.chat.newChat')) {
+      if (conv.newConversation && cmds.has('workbench.action.chat.newChat')) {
         await vscode.commands.executeCommand('workbench.action.chat.newChat');
         await sleep(500);
       }
@@ -247,7 +260,10 @@ async function deliver(parsed, label, requestedId, opts = {}) {
       return;
     }
 
-    const newConvSuffix = parsed.newConversation ? ' (new conversation)' : '';
+    if (extensionContext) {
+      extensionContext.workspaceState.update('agentBridge.conversation', conv.next);
+    }
+    const newConvSuffix = conv.newConversation ? ` (new conversation: ${conv.reason})` : '';
     const lessonsSuffix = lessonsAdded ? ' (+lessons)' : '';
     log(`sent ${body.length} chars via ${via}: ${label}${newConvSuffix}${lessonsSuffix} id=${id}`);
     
@@ -272,6 +288,20 @@ async function deliver(parsed, label, requestedId, opts = {}) {
   } catch (e) {
     log(`send failed (${label}): ${e.message}`);
     setStatus('error');
+  }
+}
+
+// Antigravity writes agent edits to disk right away; Accept/Reject is only a review layer that
+// piles up across tasks. The orchestrator reviews with git, so clear it when a task ends.
+async function acceptAgentEdits(cmds, when) {
+  if (getSettings().acceptChanges !== 'onDone') return;
+  try {
+    const available = cmds || new Set(await vscode.commands.getCommands(true));
+    if (!available.has('antigravity.acceptAllChanges')) return;
+    await vscode.commands.executeCommand('antigravity.acceptAllChanges');
+    log(`accepted pending agent edits (${when})`);
+  } catch (e) {
+    log(`accepting agent edits failed: ${e.message}`);
   }
 }
 
@@ -386,6 +416,7 @@ function handleDone(item) {
     });
   }
   
+  acceptAgentEdits(null, `${item.id} finished`);
   runHook('done', item.id, info.status, item.file, info.summary);
 }
 
@@ -448,18 +479,32 @@ function checkQuota() {
   if (!id) return;
   const sentAt = pending[id].sentAt;
 
-  const dir = settings.conversationsPath.trim()
-    || path.join(os.homedir(), '.gemini', 'antigravity-ide', 'conversations');
+  // Antigravity IDE 1.107+ keeps conversations in ~/.gemini/antigravity; older builds used
+  // ~/.gemini/antigravity-ide. The databases run in WAL mode, so fresh steps sit in <name>.db-wal.
+  const dirs = settings.conversationsPath.trim()
+    ? [settings.conversationsPath.trim()]
+    : ['antigravity', 'antigravity-ide'].map((d) => path.join(os.homedir(), '.gemini', d, 'conversations'));
   let newest = null;
-  try {
-    for (const name of fs.readdirSync(dir)) {
+  for (const dir of dirs) {
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch (_) {
+      continue;
+    }
+    for (const name of names) {
       if (!name.endsWith('.db')) continue;
       const file = path.join(dir, name);
-      const mtimeMs = fs.statSync(file).mtimeMs;
+      let mtimeMs = 0;
+      for (const f of [file, file + '-wal']) {
+        try {
+          mtimeMs = Math.max(mtimeMs, fs.statSync(f).mtimeMs);
+        } catch (_) {
+          /* no WAL file */
+        }
+      }
       if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };
     }
-  } catch (_) {
-    return;
   }
   // Same 30 s tolerance as the error time: the agent writes this file around the moment we send.
   if (!newest || newest.mtimeMs < sentAt - 30000) return;
@@ -471,7 +516,13 @@ function checkQuota() {
 
   let hit;
   try {
-    hit = core.findQuotaError(fs.readFileSync(newest.file), sentAt - 30000);
+    const parts = [fs.readFileSync(newest.file)];
+    try {
+      parts.push(fs.readFileSync(newest.file + '-wal'));
+    } catch (_) {
+      /* no WAL file */
+    }
+    hit = core.findQuotaError(Buffer.concat(parts), sentAt - 30000);
   } catch (e) {
     log(`quota check failed: ${e.message}`);
     return;
@@ -560,26 +611,39 @@ async function handle(entry) {
   }
 
   const savedChoice = extensionContext ? extensionContext.workspaceState.get('agentBridge.autoSend') : undefined;
-  const decision = core.decideConfirm(settings.confirmMode, savedChoice);
+  const trusted = vscode.workspace.isTrusted !== false;
+  const decision = core.decideConfirm(settings.confirmMode, savedChoice, {
+    trusted,
+    allProjects: Boolean(extensionContext && extensionContext.globalState && extensionContext.globalState.get('agentBridge.autoSendAll') === true)
+  });
 
   if (decision === 'send') {
     await sendFile(entry, parsed, headerId);
     return;
   }
 
-  const detail = core.preview(parsed.body) + (parsed.newConversation ? '\n\n(starts a new conversation)' : '');
+  const detail = core.preview(parsed.body)
+    + (parsed.newConversation ? '\n\n(starts a new conversation)' : '')
+    + (trusted ? '' : '\n\nThis folder is not trusted (Restricted Mode), so Agent Bridge asks before every prompt.');
 
   if (decision === 'first') {
     const first = await vscode.window.showWarningMessage(
       'Agent Bridge: auto-send prompts from this project\'s inbox to the agent?',
       {
         modal: true,
-        detail: `First prompt: "${entry.name}"\n\n${detail}\n\nYour answer is saved for this project only. Change it any time with "Agent Bridge: Reset auto-send choice".`
+        detail: `First prompt: "${entry.name}"\n\n${detail}\n\n"All trusted projects" stops this question in every folder you trust (Restricted Mode folders always ask). Your answer is stored on this computer, never in the repo. Change it any time with "Agent Bridge: Reset auto-send choice".`
       },
       'Always for this project',
+      'Always for all trusted projects',
       'Ask each time',
       'View prompt'
     );
+    if (first === 'Always for all trusted projects') {
+      await extensionContext.globalState.update('agentBridge.autoSendAll', true);
+      log('auto-send turned on for all trusted projects');
+      await sendFile(entry, parsed, headerId);
+      return;
+    }
     if (first === 'Always for this project') {
       await extensionContext.workspaceState.update('agentBridge.autoSend', 'always');
       log('auto-send turned on for this project');
@@ -953,7 +1017,9 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('agentBridge.resetAutoSend', async () => {
       await context.workspaceState.update('agentBridge.autoSend', undefined);
-      log('auto-send choice reset');
+      const hadAll = context.globalState && context.globalState.get('agentBridge.autoSendAll') === true;
+      if (hadAll) await context.globalState.update('agentBridge.autoSendAll', undefined);
+      log(hadAll ? 'auto-send choice reset (this project and all projects)' : 'auto-send choice reset');
       vscode.window.showInformationMessage('Agent Bridge: auto-send choice reset. You will be asked again on the next prompt.');
     })
   );
@@ -1176,7 +1242,7 @@ function menuItems() {
   if (inboxReady) items.push({ label: '$(output) Open log', command: 'agentBridge.openLog' });
   if (inboxDir) items.push({ label: '$(folder-opened) Open inbox folder', command: 'agentBridge.openInbox' });
   items.push({ label: '$(lightbulb) Add lesson', description: 'a rule the agent should follow', command: 'agentBridge.addLesson' });
-  if (extensionContext && extensionContext.workspaceState.get('agentBridge.autoSend')) {
+  if (extensionContext && (extensionContext.workspaceState.get('agentBridge.autoSend') || (extensionContext.globalState && extensionContext.globalState.get('agentBridge.autoSendAll')))) {
     items.push({ label: '$(discard) Reset auto-send choice', command: 'agentBridge.resetAutoSend' });
   }
   items.push({ label: '$(gear) Settings', command: 'workbench.action.openSettings', args: ['@ext:alokkkchaudharyyy.agent-bridge'] });

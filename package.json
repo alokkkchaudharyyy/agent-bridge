@@ -214,6 +214,38 @@
           "default": "",
           "markdownDescription": "Where Antigravity keeps its conversation files, for quota detection. Empty = `~/.gemini/antigravity-ide/conversations`."
         },
+        "agentBridge.conversationMode": {
+          "type": "string",
+          "enum": [
+            "perTask",
+            "marker"
+          ],
+          "default": "perTask",
+          "enumDescriptions": [
+            "Each new task id starts a fresh agent chat; follow-ups with the same id stay in it",
+            "Only start a fresh chat when the prompt starts with the new-conversation marker"
+          ],
+          "markdownDescription": "When to start a new agent conversation. Antigravity can't compact long chats, so `perTask` gives every task a clean chat and keeps fixes for the same task id together. A prompt can override this with `<!-- new-conversation -->` or `<!-- same-conversation -->` as its first line."
+        },
+        "agentBridge.maxPromptsPerConversation": {
+          "type": "number",
+          "default": 6,
+          "minimum": 0,
+          "markdownDescription": "Start a fresh conversation after this many prompts in one chat, so it never gets too long. A prompt starting with `<!-- same-conversation -->` is still kept in the chat. 0 = no limit."
+        },
+        "agentBridge.acceptChanges": {
+          "type": "string",
+          "enum": [
+            "onDone",
+            "off"
+          ],
+          "default": "onDone",
+          "enumDescriptions": [
+            "Click Antigravity's \"Accept all\" when a task finishes and before each new prompt",
+            "Leave agent edits for you to accept or reject"
+          ],
+          "markdownDescription": "Antigravity writes agent edits to disk immediately; Accept/Reject is only a review layer that piles up across tasks. With `onDone`, Agent Bridge accepts them when a task finishes, so review the work with git instead. Choose `off` to review in the editor yourself."
+        },
         "agentBridge.sendMethod": {
           "type": "string",
           "enum": [
