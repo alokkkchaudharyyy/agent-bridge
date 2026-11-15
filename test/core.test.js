@@ -110,6 +110,7 @@ test('parsePrompt', async (t) => {
     const result = parsePrompt('<!-- new-conversation -->\nHello agent');
     assert.deepEqual(result, {
       newConversation: true,
+      conversation: 'new',
       body: 'Hello agent',
       isEmpty: false
     });
@@ -119,6 +120,7 @@ test('parsePrompt', async (t) => {
     const result = parsePrompt('Hello agent\n<!-- new-conversation -->');
     assert.deepEqual(result, {
       newConversation: false,
+      conversation: null,
       body: 'Hello agent\n<!-- new-conversation -->',
       isEmpty: false
     });
@@ -128,6 +130,7 @@ test('parsePrompt', async (t) => {
     const result = parsePrompt('\n\r\n  \n<!-- new-conversation -->\n\nTask text\n');
     assert.deepEqual(result, {
       newConversation: true,
+      conversation: 'new',
       body: 'Task text\n',
       isEmpty: false
     });
@@ -137,6 +140,7 @@ test('parsePrompt', async (t) => {
     const withMarker = parsePrompt('\uFEFF<!-- new-conversation -->\nTask text');
     assert.deepEqual(withMarker, {
       newConversation: true,
+      conversation: 'new',
       body: 'Task text',
       isEmpty: false
     });
@@ -144,6 +148,7 @@ test('parsePrompt', async (t) => {
     const withoutMarker = parsePrompt('\uFEFFTask text');
     assert.deepEqual(withoutMarker, {
       newConversation: false,
+      conversation: null,
       body: 'Task text',
       isEmpty: false
     });
@@ -153,6 +158,7 @@ test('parsePrompt', async (t) => {
     const result = parsePrompt('<!-- new-conversation -->');
     assert.deepEqual(result, {
       newConversation: true,
+      conversation: 'new',
       body: '',
       isEmpty: true
     });
@@ -160,6 +166,7 @@ test('parsePrompt', async (t) => {
     const resultWithWhitespace = parsePrompt('  \n<!-- new-conversation -->  \n\t  ');
     assert.deepEqual(resultWithWhitespace, {
       newConversation: true,
+      conversation: 'new',
       body: '',
       isEmpty: true
     });
@@ -167,6 +174,7 @@ test('parsePrompt', async (t) => {
     const empty = parsePrompt('');
     assert.deepEqual(empty, {
       newConversation: false,
+      conversation: null,
       body: '',
       isEmpty: true
     });
@@ -176,6 +184,7 @@ test('parsePrompt', async (t) => {
     const result = parsePrompt('[NEW]\nCustom task', '[NEW]');
     assert.deepEqual(result, {
       newConversation: true,
+      conversation: 'new',
       body: 'Custom task',
       isEmpty: false
     });
@@ -185,6 +194,7 @@ test('parsePrompt', async (t) => {
     const emptyMarker = parsePrompt('<!-- new-conversation -->\nHello', '');
     assert.deepEqual(emptyMarker, {
       newConversation: false,
+      conversation: null,
       body: '<!-- new-conversation -->\nHello',
       isEmpty: false
     });
@@ -192,6 +202,7 @@ test('parsePrompt', async (t) => {
     const nonStringMarker = parsePrompt('<!-- new-conversation -->\nHello', null);
     assert.deepEqual(nonStringMarker, {
       newConversation: false,
+      conversation: null,
       body: '<!-- new-conversation -->\nHello',
       isEmpty: false
     });

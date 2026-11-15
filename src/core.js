@@ -64,17 +64,21 @@ function selectNext(entries, nowMs, opts = {}) {
   return numberedEntries[0];
 }
 
+const SAME_CONVERSATION_MARKER = '<!-- same-conversation -->';
+
+// conversation: 'new' (marker), 'same' (<!-- same-conversation -->) or null.
 function parsePrompt(text, marker = '<!-- new-conversation -->') {
   const textWithoutBOM = typeof text === 'string' && text.startsWith('\uFEFF')
     ? text.slice(1)
     : (typeof text === 'string' ? text : '');
 
-  if (typeof marker === 'string' && marker.length > 0) {
-    const trimmedLeading = textWithoutBOM.trimStart();
-    if (trimmedLeading.startsWith(marker)) {
-      const body = trimmedLeading.slice(marker.length).trimStart();
+  const trimmedLeading = textWithoutBOM.trimStart();
+  for (const [m, conversation] of [[marker, 'new'], [SAME_CONVERSATION_MARKER, 'same']]) {
+    if (typeof m === 'string' && m.length > 0 && trimmedLeading.startsWith(m)) {
+      const body = trimmedLeading.slice(m.length).trimStart();
       return {
-        newConversation: true,
+        newConversation: conversation === 'new',
+        conversation,
         body,
         isEmpty: body.trim() === ''
       };
@@ -83,6 +87,7 @@ function parsePrompt(text, marker = '<!-- new-conversation -->') {
 
   return {
     newConversation: false,
+    conversation: null,
     body: textWithoutBOM,
     isEmpty: textWithoutBOM.trim() === ''
   };
@@ -457,13 +462,48 @@ function effectiveConfirmMode(inspected) {
 }
 
 // savedChoice is the per-workspace answer to the one-time question: 'always' | 'ask' | undefined.
+// opts.allProjects: the user chose "Always for all trusted projects" (stored per machine).
+// opts.trusted: workspace trust; an untrusted workspace never auto-sends, whatever the settings.
 // Returns 'send' (no dialog), 'ask' (per-prompt dialog) or 'first' (the one-time question).
-function decideConfirm(mode, savedChoice) {
+function decideConfirm(mode, savedChoice, opts = {}) {
+  if (opts.trusted === false) return 'ask';
   if (mode === 'never') return 'send';
   if (mode === 'always') return 'ask';
   if (savedChoice === 'always') return 'send';
   if (savedChoice === 'ask') return 'ask';
+  if (opts.allProjects === true) return 'send';
   return 'first';
+}
+
+// Whether a prompt starts a new agent conversation. Antigravity has no compaction, so long chats
+// get slow and confused; by default every new task gets a fresh chat and follow-ups (same id) stay.
+// mode: 'perTask' | 'marker'. marker: 'new' | 'same' | null, from the prompt header.
+// current: { taskId, prompts } for the conversation the last prompt went to, or null.
+// maxPrompts: start over after this many prompts in one conversation (0 = no limit), unless
+// the prompt explicitly says 'same'.
+function decideConversation({ mode, marker, id, current, maxPrompts }) {
+  let fresh;
+  let reason = null;
+  if (marker === 'new') {
+    fresh = true;
+    reason = 'marker';
+  } else if (marker === 'same') {
+    fresh = false;
+  } else if (mode === 'perTask') {
+    fresh = !current || current.taskId !== id;
+    if (fresh) reason = 'new task';
+  } else {
+    fresh = false;
+  }
+  const limit = Number(maxPrompts);
+  if (!fresh && marker !== 'same' && current && limit > 0 && current.prompts >= limit) {
+    fresh = true;
+    reason = `${current.prompts} prompts in this conversation`;
+  }
+  const next = fresh || !current
+    ? { taskId: id, prompts: 1 }
+    : { taskId: current.taskId, prompts: current.prompts + 1 };
+  return { newConversation: fresh, reason, next };
 }
 
 // Names of files older than `days` (entries: [{ name, mtimeMs }]). days <= 0 keeps everything.
@@ -540,6 +580,7 @@ function orchestratorPrompt({ projectPath, inboxDir, lessonsPath }) {
 }
 
 module.exports = {
+  decideConversation,
   expiredFiles,
   orchestratorPrompt,
   openPendingId,
