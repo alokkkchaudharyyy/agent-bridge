@@ -15,7 +15,7 @@ const handlers = {};
 const msgs = [];
 const status = { text: '', show() {}, dispose() {} };
 const state = new Map();
-const commandList = ['antigravity.sendPromptToAgentPanel', 'antigravity.startNewConversation'];
+const commandList = ['antigravity.sendPromptToAgentPanel', 'antigravity.startNewConversation', 'antigravity.acceptAllChanges'];
 const globalState = new Map();
 let clipboard = '';
 let menuPick = '';
@@ -138,7 +138,7 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     // 1. Send with markers and an id header.
     put('001.prompt.md', '<!-- new-conversation -->\n<!-- id: task-42 -->\nDo the thing.');
     await waitFor(() => sends().length === 1, 'first send');
-    assert.equal(calls[0][0], 'antigravity.startNewConversation');
+    assert.deepEqual(calls.slice(0, 2).map((c) => c[0]), ['antigravity.acceptAllChanges', 'antigravity.startNewConversation'], 'old edits accepted, then a fresh chat');
     const sent = sends()[0][1];
     assert.ok(sent.startsWith('Do the thing.'), 'markers stripped');
     assert.ok(sent.includes(path.join(inbox, 'done', 'task-42.json')), 'footer has absolute done path');
@@ -164,6 +164,7 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     // 2. Done file -> notification, status, pending cleared, hook ran.
     put('done/task-42.json', JSON.stringify({ id: 'task-42', status: 'done', summary: 'Built it.', commits: ['abc123'] }));
     await waitFor(() => hasMsg('info', 'task-42 done. Built it.'), 'done notification');
+    await waitFor(() => /accepted pending agent edits \(task-42 finished\)/.test(readLog()), 'agent edits accepted on done');
     assert.match(status.text, /task-42 done/);
     assert.equal(state.get('agentBridge.pending')['task-42'], undefined);
     const hookFile = path.join(ws, 'hook.txt');
@@ -177,9 +178,16 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
 
     // 4. Generated id, then stuck warning.
     put('003.prompt.md', 'No id here.');
-    await waitFor(() => hasMsg(null, 'may be stuck'), 'stuck warning');
-    assert.ok(msgs.find((m) => m[1].includes('may be stuck'))[1].includes('Last log:'), 'stuck warning shows log lines');
-    assert.ok(fs.readdirSync(path.join(inbox, 'sent')).some((f) => /^\d{8}-\d{4}-[0-9a-f]{4}\.json$/.test(f)), 'generated id');
+    const genId = () => {
+      for (const f of fs.readdirSync(path.join(inbox, 'sent'))) {
+        const r = JSON.parse(fs.readFileSync(path.join(inbox, 'sent', f), 'utf8'));
+        if (r.file === '003.prompt.md') return /^\d{8}-\d{4}-[0-9a-f]{4}$/.test(r.id) ? r.id : 'bad-id';
+      }
+      return '';
+    };
+    await waitFor(() => genId(), 'generated id');
+    await waitFor(() => hasMsg(null, `may be stuck on ${genId()}`), 'stuck warning for the generated id');
+    assert.ok(msgs.find((m) => m[1].includes(`may be stuck on ${genId()}`))[1].includes('Last log:'), 'stuck warning shows log lines');
 
     // 5. Marker-only prompt is discarded, not sent.
     const before = sends().length;
@@ -211,8 +219,12 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
 
     // 7b. A prompt reusing the open task's id is a follow-up: it doesn't wait for itself.
     const beforeFix = sends().length;
+    const newChats = () => calls.filter((c) => c[0] === 'antigravity.startNewConversation').length;
+    const chatsBefore = newChats();
     put('009.prompt.md', '<!-- id: g-3 -->\nThird queued. (fixed)');
     await waitFor(() => sends().length === beforeFix + 1, 'same-id follow-up sent without waiting');
+    assert.equal(newChats(), chatsBefore, 'same task id stays in the same conversation');
+    assert.deepEqual(state.get('agentBridge.conversation'), { taskId: 'g-3', prompts: 2 });
     assert.ok(sends()[sends().length - 1][1].startsWith('Third queued. (fixed)'));
 
     // 8. Quota stop in the (fake) Antigravity conversation file -> question/g-3.md.
@@ -221,7 +233,8 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     cfg.conversationsPath = convDir;
     cfg.detectQuotaErrors = 'on';
     const errDate = new Date(Date.now() + 1000).toUTCString();
-    fs.writeFileSync(path.join(convDir, 'c1.db'), Buffer.concat([
+    fs.writeFileSync(path.join(convDir, 'c1.db'), 'SQLite format 3');
+    fs.writeFileSync(path.join(convDir, 'c1.db-wal'), Buffer.concat([
       Buffer.from([0, 1, 2]),
       Buffer.from('RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h5m26s', 'latin1'),
       Buffer.from([0, 0]),
