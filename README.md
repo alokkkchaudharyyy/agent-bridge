@@ -55,15 +55,22 @@ INBOX:   {PROJECT_PATH}/.agent-inbox
 SENDING A TASK
 - Create INBOX if it doesn't exist. Agent Bridge starts watching it as soon as it appears.
 - Pick a task id: letters, digits, . _ - (max 64), e.g. task-001, task-002.
-- Write the prompt as Markdown. First lines:
-    <!-- new-conversation -->   (optional: start a fresh agent chat; use it for unrelated tasks)
-    <!-- id: task-001 -->
+- Write the prompt as Markdown. First line: <!-- id: task-001 -->
   then the task itself: goal, files involved, acceptance criteria, "run the tests", "commit when done".
 - Save it as INBOX/task-001.tmp, then rename it to INBOX/task-001.prompt.md.
   (Files named *.prompt.md are sent one at a time in name order; prompt.md is sent first.
   The rename makes sure a half-written file is never sent.)
 - Never write into INBOX/archive/, INBOX/done/ or INBOX/sent/.
 - If you didn't set an id, find it in INBOX/sent/ (newest file) or the last "id=" in INBOX/bridge.log.
+
+CONVERSATIONS (the IDE agent remembers nothing between tasks)
+- Every new task id starts a fresh agent chat. Make each prompt stand alone: the goal, the files
+  involved, decisions made so far, and what "done" means. Never write "as discussed before".
+- A fix after your review keeps the same id, so it lands in the same chat. After several prompts
+  in one chat (6 by default) a fresh chat starts anyway, so fix prompts must restate what to change.
+- To override, make the first line <!-- new-conversation --> or <!-- same-conversation -->
+  (the id line goes right after it).
+- The agent's edits are accepted automatically when a task ends. Review them with git, not in the editor.
 
 WAITING (never guess with fixed sleeps)
 - INBOX/sent/<id>.json appears when the prompt has actually been sent. A human may need to click
