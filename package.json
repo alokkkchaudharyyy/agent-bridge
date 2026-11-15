@@ -2,7 +2,7 @@
   "name": "agent-bridge",
   "displayName": "Agent Bridge",
   "description": "Let Claude Code, scripts or any AI agent hand tasks to your Antigravity / VS Code AI chat, and know when they're done.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "publisher": "alokkkchaudharyyy",
   "license": "MIT",
   "author": "alokkkchaudharyyy",

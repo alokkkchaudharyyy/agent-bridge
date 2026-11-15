@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-15
+
+### Added
+- **A fresh chat for every task** (`agentBridge.conversationMode`, default `perTask`). Antigravity can't compact long chats, so each new task id starts a new conversation, while fixes and resends for the same id stay in it. `agentBridge.maxPromptsPerConversation` (default 6) starts over after that many prompts in one chat. Prompts can override with `<!-- new-conversation -->` or the new `<!-- same-conversation -->`.
+- **No Accept/Reject pile-up** (`agentBridge.acceptChanges`, default `onDone`): Agent Bridge runs Antigravity's *Accept all* when a task finishes and before each new prompt. The edits are already on disk; review them with git. `off` leaves them for you.
+- **"Always for all trusted projects"** in the first-time auto-send question, so it's asked once per computer instead of once per project. *Reset auto-send choice* clears it too.
+- The orchestrator prompt tells the orchestrator to write self-contained prompts and to review with git.
+
+### Changed
+- Folders in Restricted Mode (untrusted) always ask before sending, whatever the settings.
+- The `.gitignore` offer only appears in folders that use git.
+
+### Fixed
+- Quota detection works with Antigravity IDE 1.107+, which moved conversations to `~/.gemini/antigravity/conversations` and keeps recent steps in SQLite `-wal` files.
+
 ## [0.4.1] - 2026-11-15
 
 ### Fixed
