@@ -209,6 +209,12 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     await handlers['agentBridge.sendNextNow']();
     await waitFor(() => fs.existsSync(path.join(inbox, 'sent', 'g-3.json')), 'g-3 sent by Send next now');
 
+    // 7b. A prompt reusing the open task's id is a follow-up: it doesn't wait for itself.
+    const beforeFix = sends().length;
+    put('009.prompt.md', '<!-- id: g-3 -->\nThird queued. (fixed)');
+    await waitFor(() => sends().length === beforeFix + 1, 'same-id follow-up sent without waiting');
+    assert.ok(sends()[sends().length - 1][1].startsWith('Third queued. (fixed)'));
+
     // 8. Quota stop in the (fake) Antigravity conversation file -> question/g-3.md.
     const convDir = path.join(ws2, 'conversations');
     fs.mkdirSync(convDir);

@@ -718,7 +718,16 @@ async function poll() {
     }
     const entry = core.selectNext(entries, Date.now(), { skip });
     if (entry) {
-      const openId = getSettings().waitForDone && !forceNext ? core.openPendingId(pending) : null;
+      let openId = getSettings().waitForDone && !forceNext ? core.openPendingId(pending) : null;
+      if (openId) {
+        // A prompt that reuses the open task's id is a correction or follow-up for that task,
+        // so it must not wait for the task it replaces.
+        try {
+          if (core.extractId(fs.readFileSync(path.join(inboxDir, entry.name), 'utf8')).id === openId) openId = null;
+        } catch (_) {
+          /* unreadable now; the next poll retries */
+        }
+      }
       if (openId) {
         if (heldFor !== openId) {
           heldFor = openId;
