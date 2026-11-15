@@ -214,6 +214,21 @@
           "default": "",
           "markdownDescription": "Where Antigravity keeps its conversation files, for quota detection. Empty = `~/.gemini/antigravity-ide/conversations`."
         },
+        "agentBridge.sendMethod": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "agentInput",
+            "agentPanel"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use the newest method this Antigravity version supports",
+            "Fill the agent input box and press send (antigravity.addContext + antigravity.triggerSend, newer Antigravity)",
+            "Use antigravity.sendPromptToAgentPanel (older Antigravity)"
+          ],
+          "markdownDescription": "How prompts are handed to the Antigravity agent. Leave on `auto` unless an Antigravity update breaks sending; then try the other value. Ignored outside Antigravity."
+        },
         "agentBridge.archiveRetentionDays": {
           "type": "number",
           "default": 30,

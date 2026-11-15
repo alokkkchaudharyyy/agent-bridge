@@ -99,7 +99,8 @@ function getSettings() {
     waitForDone: cfg.get('waitForDone', true),
     detectQuotaErrors: cfg.get('detectQuotaErrors', 'auto'),
     conversationsPath: cfg.get('conversationsPath', ''),
-    archiveRetentionDays: cfg.get('archiveRetentionDays', 30)
+    archiveRetentionDays: cfg.get('archiveRetentionDays', 30),
+    sendMethod: cfg.get('sendMethod', 'auto')
   };
 }
 
@@ -206,13 +207,27 @@ async function deliver(parsed, label, requestedId, opts = {}) {
     const cmds = new Set(cmdsList);
     let via = null;
 
-    if (cmds.has('antigravity.sendPromptToAgentPanel')) {
+    // Newer Antigravity builds (agent panel from the bundled "agy" extension) take prompts through
+    // addContext + triggerSend; the older sendPromptToAgentPanel command still exists there but
+    // can silently do nothing. sendMethod lets users force one path if an update breaks the other.
+    const canInput = cmds.has('antigravity.addContext') && cmds.has('antigravity.triggerSend');
+    const useInput = canInput && settings.sendMethod !== 'agentPanel';
+    const usePanel = cmds.has('antigravity.sendPromptToAgentPanel') && settings.sendMethod !== 'agentInput';
+
+    if (useInput || usePanel) {
       if (parsed.newConversation && cmds.has('antigravity.startNewConversation')) {
         await vscode.commands.executeCommand('antigravity.startNewConversation');
         await sleep(1500);
       }
-      await vscode.commands.executeCommand('antigravity.sendPromptToAgentPanel', body);
-      via = 'antigravity';
+      if (useInput) {
+        await vscode.commands.executeCommand('antigravity.addContext', body);
+        await sleep(400);
+        await vscode.commands.executeCommand('antigravity.triggerSend');
+        via = 'antigravity-input';
+      } else {
+        await vscode.commands.executeCommand('antigravity.sendPromptToAgentPanel', body);
+        via = 'antigravity';
+      }
     } else if (cmds.has('workbench.action.chat.open')) {
       if (parsed.newConversation && cmds.has('workbench.action.chat.newChat')) {
         await vscode.commands.executeCommand('workbench.action.chat.newChat');

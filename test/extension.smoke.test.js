@@ -15,6 +15,7 @@ const handlers = {};
 const msgs = [];
 const status = { text: '', show() {}, dispose() {} };
 const state = new Map();
+const commandList = ['antigravity.sendPromptToAgentPanel', 'antigravity.startNewConversation'];
 const globalState = new Map();
 let clipboard = '';
 let menuPick = '';
@@ -60,7 +61,7 @@ const fakeVscode = {
     showQuickPick: async (items) => items.find((i) => i.label.includes(menuPick))
   },
   commands: {
-    getCommands: async () => ['antigravity.sendPromptToAgentPanel', 'antigravity.startNewConversation'],
+    getCommands: async () => commandList,
     executeCommand: async (c, a) => {
       calls.push([c, a]);
     },
@@ -244,6 +245,20 @@ test('extension flow: lazy inbox, log rotation, first-time choice, multi-root pa
     menuPick = 'Copy orchestrator prompt';
     await handlers['agentBridge.showMenu']();
     assert.ok(calls.some((c) => c[0] === 'agentBridge.copyOrchestratorPrompt'), 'menu ran the action');
+
+    // 11. Newer Antigravity: fill the agent input and press send instead of sendPromptToAgentPanel.
+    commandList.push('antigravity.addContext', 'antigravity.triggerSend');
+    const panelSends = sends().length;
+    await handlers['agentBridge.resendLast']();
+    const add = calls.filter((c) => c[0] === 'antigravity.addContext');
+    assert.equal(add.length, 1);
+    assert.ok(add[0][1].startsWith('Third queued.'), 'prompt goes into the input box');
+    assert.equal(calls[calls.length - 1][0], 'antigravity.triggerSend', 'then send is pressed');
+    assert.equal(sends().length, panelSends, 'old command not used');
+    assert.match(readLog(), /via antigravity-input/);
+    cfg.sendMethod = 'agentPanel';
+    await handlers['agentBridge.resendLast']();
+    assert.equal(sends().length, panelSends + 1, 'sendMethod agentPanel forces the old command');
   } finally {
     if (ext) ext.deactivate();
     for (const d of ctx.subscriptions) {
